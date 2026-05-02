@@ -3,10 +3,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CATEGORIES, CATEGORY_EMOJI, Category, WishlistItem } from "@/lib/storage";
+import { CATEGORIES, CATEGORY_EMOJI, Category } from "@/lib/data";
 import { Plus } from "lucide-react";
 
-export function AddItemDialog({ onAdd }: { onAdd: (item: WishlistItem) => void }) {
+export interface NewItemInput {
+  name: string;
+  price: number;
+  category: Category;
+  priority: number;
+}
+
+export function AddItemDialog({ onAdd }: { onAdd: (input: NewItemInput) => Promise<void> | void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -15,18 +22,9 @@ export function AddItemDialog({ onAdd }: { onAdd: (item: WishlistItem) => void }
 
   const reset = () => { setName(""); setPrice(""); setCategory("Tech"); setPriority(3); };
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim() || !price) return;
-    onAdd({
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      price: Number(price),
-      category,
-      priority,
-      emoji: CATEGORY_EMOJI[category],
-      createdAt: Date.now(),
-      status: "active",
-    });
+    await onAdd({ name: name.trim(), price: Number(price), category, priority });
     reset();
     setOpen(false);
   };

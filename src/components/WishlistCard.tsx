@@ -1,8 +1,8 @@
-import { WishlistItem, formatMoney } from "@/lib/storage";
+import { DbWishlistItem, formatMoney } from "@/lib/data";
 import { Trash2, ChevronUp, ChevronDown } from "lucide-react";
 
 interface Props {
-  item: WishlistItem;
+  item: DbWishlistItem;
   onPriority: (id: string, delta: number) => void;
   onDelete: (id: string) => void;
 }
@@ -28,7 +28,7 @@ export function WishlistCard({ item, onPriority, onDelete }: Props) {
           <p className="mt-0.5 text-xs uppercase tracking-wider text-muted-foreground">{item.category}</p>
 
           <div className="mt-3 flex items-center justify-between">
-            <span className="font-display text-xl">{formatMoney(item.price)}</span>
+            <span className="font-display text-xl">{formatMoney(Number(item.price))}</span>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Priority</span>
               <div className="flex items-center gap-1 rounded-full bg-muted px-2 py-1">
