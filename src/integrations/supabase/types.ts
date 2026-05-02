@@ -14,7 +14,105 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      budgets: {
+        Row: {
+          bills: number
+          created_at: string
+          id: string
+          rent: number
+          salary: number
+          subscriptions: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bills?: number
+          created_at?: string
+          id?: string
+          rent?: number
+          salary?: number
+          subscriptions?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bills?: number
+          created_at?: string
+          id?: string
+          rent?: number
+          salary?: number
+          subscriptions?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      wishlist_items: {
+        Row: {
+          category: string
+          created_at: string
+          emoji: string
+          id: string
+          name: string
+          price: number
+          priority: number
+          status: Database["public"]["Enums"]["wishlist_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          emoji?: string
+          id?: string
+          name: string
+          price?: number
+          priority?: number
+          status?: Database["public"]["Enums"]["wishlist_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          emoji?: string
+          id?: string
+          name?: string
+          price?: number
+          priority?: number
+          status?: Database["public"]["Enums"]["wishlist_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +121,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      wishlist_status: "active" | "purchased" | "archived"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +248,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      wishlist_status: ["active", "purchased", "archived"],
+    },
   },
 } as const
