@@ -55,7 +55,7 @@ function WishlistPage() {
       })
       .select()
       .single();
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     setItems((prev) => [data!, ...prev]);
   };
 
