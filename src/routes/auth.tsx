@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
+import { ArrowLeft } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign in — FutureFlow" }] }),
@@ -67,9 +68,18 @@ function AuthPage() {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-10">
-      <Link to="/" className="mb-8 inline-flex items-center gap-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-warm text-lg shadow-pop">✦</div>
-        <span className="font-display text-xl font-semibold">FutureFlow</span>
+      <Link
+        to="/"
+        className="mb-8 inline-flex items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
+        aria-label="Back to home"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        <span className="text-sm">Back</span>
+      </Link>
+
+      <Link to="/" className="mb-6 inline-flex items-center gap-2 opacity-80">
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-warm text-base shadow-pop">✦</div>
+        <span className="font-display text-lg font-semibold">FutureFlow</span>
       </Link>
 
       <h1 className="font-display text-4xl font-semibold">{mode === "signin" ? "Welcome back" : "Create your account"}</h1>
