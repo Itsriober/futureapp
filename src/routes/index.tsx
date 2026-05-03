@@ -53,9 +53,6 @@ function Landing() {
               <ArrowRight className="ml-1 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Button>
           </Link>
-          <Link to="/app">
-            <Button size="lg" variant="ghost" className="rounded-full px-5">Live demo</Button>
-          </Link>
         </div>
 
         {/* Minimal illustrative scene */}
