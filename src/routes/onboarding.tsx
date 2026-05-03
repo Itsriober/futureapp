@@ -71,27 +71,49 @@ function Onboarding() {
   ];
 
   const s = steps[step];
+  const progress = ((step + 1) / steps.length) * 100;
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-10">
-      <div className="mb-8 flex items-center gap-2">
+    <div className="relative mx-auto flex min-h-screen max-w-md flex-col px-6 py-10">
+      {/* Ambient orbs */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-32 -left-16 h-72 w-72 rounded-full bg-gradient-warm opacity-20 blur-3xl" />
+        <div className="absolute bottom-0 -right-16 h-72 w-72 rounded-full opacity-20 blur-3xl"
+          style={{ background: "radial-gradient(circle, oklch(0.78 0.10 165) 0%, transparent 70%)" }} />
+      </div>
+
+      <div className="relative mb-8 flex items-center gap-2">
         {steps.map((_, i) => (
-          <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />
+          <div key={i} className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-border">
+            <div
+              className="h-full rounded-full bg-gradient-warm transition-all duration-500 ease-out"
+              style={{ width: i < step ? "100%" : i === step ? "100%" : "0%", opacity: i <= step ? 1 : 0 }}
+            />
+          </div>
         ))}
       </div>
+      <p className="relative -mt-6 mb-6 text-xs text-muted-foreground">Step {step + 1} of {steps.length} · {Math.round(progress)}%</p>
 
-      <div className="flex-1">
+      <div key={step} className="relative flex-1 animate-fade-in">
         <h1 className="font-display text-3xl font-semibold">{s.title}</h1>
         <p className="mt-2 text-muted-foreground">{s.sub}</p>
-        <div className="mt-8">{s.body}</div>
+        <div className="mt-8 animate-scale-in">{s.body}</div>
       </div>
 
-      <div className="mt-8 flex gap-3">
-        {step > 0 && <Button variant="outline" onClick={() => setStep(step - 1)} className="flex-1 rounded-full">Back</Button>}
+      <div className="relative mt-8 flex gap-3">
+        {step > 0 && (
+          <Button variant="outline" onClick={() => setStep(step - 1)} className="flex-1 rounded-full transition-transform hover:-translate-x-0.5">
+            Back
+          </Button>
+        )}
         {step < steps.length - 1 ? (
-          <Button onClick={() => setStep(step + 1)} disabled={!s.canNext} className="flex-1 rounded-full shadow-pop">Continue</Button>
+          <Button onClick={() => setStep(step + 1)} disabled={!s.canNext} className="group flex-1 rounded-full shadow-pop transition-transform hover:translate-x-0.5 disabled:hover:translate-x-0">
+            Continue
+          </Button>
         ) : (
-          <Button onClick={finish} className="flex-1 rounded-full shadow-pop">Enter FutureFlow</Button>
+          <Button onClick={finish} className="flex-1 rounded-full shadow-pop hover-scale">
+            Enter FutureFlow ✦
+          </Button>
         )}
       </div>
     </div>
