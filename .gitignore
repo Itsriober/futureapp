@@ -30,3 +30,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+00-project-init
+GITHUB_PROJECT_TASKS.md
