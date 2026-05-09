@@ -18,23 +18,26 @@ function WishlistPage() {
   const [filter, setFilter] = useState<Category | "All">("All");
   const [loading, setLoading] = useState(true);
 
+  const fetchItems = async () => {
+    const { data, error } = await supabase
+      .from("wishlist_items")
+      .select("*")
+      .eq("status", "active")
+      .order("priority", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (error) toast.error(error.message);
+    else setItems(data ?? []);
+    setLoading(false);
+  };
+
   useEffect(() => {
     if (!user) return;
-    let alive = true;
-    (async () => {
-      const { data, error } = await supabase
-        .from("wishlist_items")
-        .select("*")
-        .eq("status", "active")
-        .order("priority", { ascending: false })
-        .order("created_at", { ascending: false });
-      if (!alive) return;
-      if (error) toast.error(error.message);
-      else setItems(data ?? []);
-      setLoading(false);
-    })();
-    return () => { alive = false; };
+    fetchItems();
+    
+    window.addEventListener("wishlist-updated", fetchItems);
+    return () => window.removeEventListener("wishlist-updated", fetchItems);
   }, [user]);
+
 
   const visible = useMemo(
     () => (filter === "All" ? items : items.filter((i) => i.category === filter)),

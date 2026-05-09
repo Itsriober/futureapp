@@ -13,7 +13,8 @@ export interface NewItemInput {
   priority: number;
 }
 
-export function AddItemDialog({ onAdd }: { onAdd: (input: NewItemInput) => Promise<void> | void }) {
+export function AddItemDialog({ onAdd, fab }: { onAdd: (input: NewItemInput) => Promise<void> | void; fab?: boolean }) {
+
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -32,11 +33,18 @@ export function AddItemDialog({ onAdd }: { onAdd: (input: NewItemInput) => Promi
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="lg" className="rounded-full shadow-pop">
-          <Plus className="mr-1 h-4 w-4" /> Add a want
-        </Button>
+        {fab ? (
+          <Button size="icon" className="h-16 w-16 rounded-full shadow-pop bg-gradient-warm hover:scale-110 transition-transform">
+            <Plus className="h-8 w-8" />
+          </Button>
+        ) : (
+          <Button size="lg" className="rounded-full shadow-pop">
+            <Plus className="mr-1 h-4 w-4" /> Add a want
+          </Button>
+        )}
       </DialogTrigger>
-      <DialogContent className="rounded-3xl">
+      <DialogContent className="rounded-[2.5rem] p-8">
+
         <DialogHeader>
           <DialogTitle className="font-display text-2xl">What do you want?</DialogTitle>
         </DialogHeader>

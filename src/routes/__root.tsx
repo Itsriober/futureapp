@@ -1,5 +1,7 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { AuthProvider } from "@/lib/auth";
+
 import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
@@ -42,11 +44,13 @@ export const Route = createRootRoute({
       { name: "twitter:title", content: "futureapp" },
       { name: "twitter:description", content: "Capture what you want, prioritize intelligently, and let your budget guide what comes next — not impulse." },
       { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/NAM7EEYTdnZdBRpSTCM5w7u8nMv2/social-images/social-1777685042227-Social_Image.webp" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/NAM7EEYTdnZdBRpSTCM5w7u8nMv2/social-images/social-1777685042227-Social_Image.webp" },
+      { name: "theme-color", content: "#FF6B6B" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
+
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
@@ -74,6 +78,17 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").then(
+          (registration) => console.log("SW registered:", registration.scope),
+          (err) => console.log("SW failed:", err)
+        );
+      });
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <Outlet />
@@ -81,3 +96,4 @@ function RootComponent() {
     </AuthProvider>
   );
 }
+

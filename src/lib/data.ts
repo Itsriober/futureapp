@@ -75,15 +75,30 @@ export function freeMoney(b: { salary: number; rent: number; bills: number; subs
 
 export function suggestPurchases(items: DbWishlistItem[], budget: number) {
   const active = items.filter((i) => i.status === "active");
-  const sorted = [...active].sort((a, b) => b.priority - a.priority || Number(a.price) - Number(b.price));
+  
+  // Scoring formula: Score = (Priority × 2) + (Weeks on list × 0.5)
+  const scored = active.map((it) => {
+    const priority = it.priority || 1;
+    const createdAt = new Date(it.created_at).getTime();
+    const weeksOnList = Math.max(0, (Date.now() - createdAt) / (1000 * 60 * 60 * 24 * 7));
+    const score = (priority * 2) + (weeksOnList * 0.5);
+    return { ...it, score };
+  });
+
+  const sorted = scored.sort((a, b) => b.score - a.score || Number(a.price) - Number(b.price));
+  
   const picked: DbWishlistItem[] = [];
   let remaining = budget;
   for (const it of sorted) {
     const p = Number(it.price);
-    if (p <= remaining) { picked.push(it); remaining -= p; }
+    if (p <= remaining) {
+      picked.push(it);
+      remaining -= p;
+    }
   }
   return { picked, remaining };
 }
+
 
 export function formatMoney(n: number) {
   return new Intl.NumberFormat("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 }).format(n || 0);
@@ -94,3 +109,33 @@ export const CATEGORIES: Category[] = ["Tech", "Fashion", "Experience", "Food", 
 export const CATEGORY_EMOJI: Record<Category, string> = {
   Tech: "💻", Fashion: "👟", Experience: "✈️", Food: "🍜", Home: "🛋️", Other: "✨",
 };
+
+export const MBTI_TYPES = [
+  "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
+  "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"
+];
+
+export const HOBBIES = [
+  { name: "Travel", icon: "✈️" }, { name: "Cooking", icon: "🍳" }, { name: "Gaming", icon: "🎮" },
+  { name: "Fitness", icon: "💪" }, { name: "Reading", icon: "📚" }, { name: "Music", icon: "🎵" },
+  { name: "Art", icon: "🎨" }, { name: "Tech", icon: "💻" }, { name: "Nature", icon: "🌲" }
+];
+
+export function getZodiacSign(date: string | Date) {
+  const d = new Date(date);
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  if ((m === 3 && day >= 21) || (m === 4 && day <= 19)) return { sign: "Aries", symbol: "♈" };
+  if ((m === 4 && day >= 20) || (m === 5 && day <= 20)) return { sign: "Taurus", symbol: "♉" };
+  if ((m === 5 && day >= 21) || (m === 6 && day <= 20)) return { sign: "Gemini", symbol: "♊" };
+  if ((m === 6 && day >= 21) || (m === 7 && day <= 22)) return { sign: "Cancer", symbol: "♋" };
+  if ((m === 7 && day >= 23) || (m === 8 && day <= 22)) return { sign: "Leo", symbol: "♌" };
+  if ((m === 8 && day >= 23) || (m === 9 && day <= 22)) return { sign: "Virgo", symbol: "♍" };
+  if ((m === 9 && day >= 23) || (m === 10 && day <= 22)) return { sign: "Libra", symbol: "♎" };
+  if ((m === 10 && day >= 23) || (m === 11 && day <= 21)) return { sign: "Scorpio", symbol: "♏" };
+  if ((m === 11 && day >= 22) || (m === 12 && day <= 21)) return { sign: "Sagittarius", symbol: "♐" };
+  if ((m === 12 && day >= 22) || (m === 1 && day <= 19)) return { sign: "Capricorn", symbol: "♑" };
+  if ((m === 1 && day >= 20) || (m === 2 && day <= 18)) return { sign: "Aquarius", symbol: "♒" };
+  return { sign: "Pisces", symbol: "♓" };
+}
+
