@@ -8,6 +8,7 @@ import { CheckCircle2, ChevronRight, DollarSign, Lock, Sparkles } from "lucide-r
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/app/payday")({
   head: () => ({ meta: [{ title: "Payday — Listi" }] }),
@@ -18,20 +19,18 @@ function PaydayPage() {
   const { user } = useAuth();
   const [step, setStep] = useState<"input" | "reveal" | "result">("input");
   const [salary, setSalary] = useState<number>(0);
-  const [fixedExpenses, setFixedExpenses] = useState<{ name: string; amount: number; is_savings?: boolean }[]>([]);
+  const [fixedExpenses, setFixedExpenses] = useState<{ name: string; amount: number }[]>([]);
   const [savingsLock, setSavingsLock] = useState<number>(0);
   const [items, setItems] = useState<DbWishlistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [purchasedIds, setPurchasedIds] = useState<Set<string>>(new Set());
+  const [cycleId, setCycleId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const [
-        { data: budget },
-        { data: fixed },
-        { data: list }
-      ] = await Promise.all([
+      const [{ data: budget }, { data: fixed }, { data: list }] = await Promise.all([
         supabase.from("budgets").select("*").eq("user_id", user.id).maybeSingle(),
         (supabase.from("fixed_expenses" as any).select("*").eq("user_id", user.id) as any),
         supabase.from("wishlist_items").select("*").eq("status", "active"),
@@ -41,13 +40,13 @@ function PaydayPage() {
         setSalary(Number(budget.salary));
         if (!fixed || fixed.length === 0) {
           const legacy = [
-            { name: "Rent", amount: Number(budget.rent), is_savings: false },
-            { name: "Bills", amount: Number(budget.bills), is_savings: false },
-            { name: "Subscriptions", amount: Number(budget.subscriptions), is_savings: false },
+            { name: "Rent", amount: Number(budget.rent) },
+            { name: "Bills", amount: Number(budget.bills) },
+            { name: "Subscriptions", amount: Number(budget.subscriptions) },
           ].filter(i => i.amount > 0);
           setFixedExpenses(legacy);
         } else {
-          setFixedExpenses(fixed.filter((f: any) => !f.is_savings).map((f: any) => ({ name: f.name, amount: Number(f.amount), is_savings: false })));
+          setFixedExpenses(fixed.filter((f: any) => !f.is_savings).map((f: any) => ({ name: f.name, amount: Number(f.amount) })));
           const savings = fixed.filter((f: any) => f.is_savings).reduce((acc: number, curr: any) => acc + Number(curr.amount), 0);
           setSavingsLock(savings);
         }
@@ -57,22 +56,19 @@ function PaydayPage() {
     })();
   }, [user]);
 
-  const totalFixed = fixedExpenses.filter(e => !e.is_savings).reduce((acc, curr) => acc + curr.amount, 0);
+  const totalFixed = fixedExpenses.reduce((acc, curr) => acc + curr.amount, 0);
   const discretionary = Math.max(0, salary - totalFixed - savingsLock);
-  const { picked, remaining } = suggestPurchases(items, discretionary);
+  const { picked } = suggestPurchases(items, discretionary);
 
   const startAllocation = () => {
-    if (salary <= 0) {
-      toast.error("Please enter your salary first");
-      return;
-    }
+    if (salary <= 0) { toast.error("Please enter your salary first"); return; }
     setStep("reveal");
   };
 
   const saveCycle = async () => {
     if (!user) return;
     setSaving(true);
-    
+
     // 1. Save the cycle record
     const { data: cycle, error: cErr } = await (supabase.from("payday_cycles" as any).insert({
       user_id: user.id,
@@ -83,30 +79,60 @@ function PaydayPage() {
       cycle_month: new Date().toISOString().split('T')[0]
     }).select().single() as any);
 
-    if (cErr) {
-      toast.error(cErr.message);
-      setSaving(false);
-      return;
-    }
+    if (cErr) { toast.error(cErr.message); setSaving(false); return; }
+    setCycleId(cycle.id);
 
-    // 2. Save the allocations
-    const allocations = picked.map(it => ({
-      cycle_id: cycle.id,
-      wishlist_item_id: it.id,
-      status: 'allocated'
-    }));
-
+    // 2. Save allocations
+    const allocations = picked.map(it => ({ cycle_id: cycle.id, wishlist_item_id: it.id, status: 'allocated' }));
     if (allocations.length > 0) {
       const { error: aErr } = await (supabase.from("cycle_allocations" as any).insert(allocations) as any);
       if (aErr) toast.error(aErr.message);
     }
+
+    // 3. Update streak
+    const { data: lastCycle } = await (supabase.from("payday_cycles" as any)
+      .select("cycle_month")
+      .eq("user_id", user.id)
+      .neq("id", cycle.id)
+      .order("cycle_month", { ascending: false })
+      .limit(1)
+      .maybeSingle() as any);
+
+    let newStreak = 1;
+    if (lastCycle?.cycle_month) {
+      const lastDate = new Date(lastCycle.cycle_month);
+      const gapDays = (new Date().getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24);
+      const { data: profile } = await supabase.from("profiles").select("streak").eq("user_id", user.id).maybeSingle();
+      newStreak = gapDays <= 35 ? (Number(profile?.streak ?? 0) + 1) : 1;
+    }
+    await supabase.from("profiles").update({ streak: newStreak }).eq("user_id", user.id);
 
     setSaving(false);
     toast.success("Payday cycle recorded! 🎊");
     setStep("result");
   };
 
-  if (loading) return <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Preparing your payday…</div>;
+  const markBought = async (item: DbWishlistItem) => {
+    const { error } = await supabase.from("wishlist_items").update({ status: "purchased" }).eq("id", item.id);
+    if (error) { toast.error(error.message); return; }
+
+    // Update allocation status
+    if (cycleId) {
+      await (supabase.from("cycle_allocations" as any).update({ status: "purchased" })
+        .eq("cycle_id", cycleId).eq("wishlist_item_id", item.id) as any);
+    }
+
+    setPurchasedIds(prev => new Set([...prev, item.id]));
+    toast.success(`${item.name} marked as bought! 🎉`);
+    window.dispatchEvent(new CustomEvent("wishlist-updated"));
+  };
+
+  if (loading) return (
+    <div className="space-y-6">
+      <Skeleton className="h-12 w-48" />
+      <Skeleton className="h-64 w-full rounded-3xl" />
+    </div>
+  );
 
   if (step === "input") {
     return (
@@ -176,16 +202,9 @@ function PaydayPage() {
             Prioritizing {items.length} desires against {formatMoney(discretionary)} balance.
           </p>
         </div>
-        <Button 
-          variant="ghost" 
-          onClick={saveCycle}
-          disabled={saving}
-          className="animate-fade-in"
-          style={{ animationDelay: "2s" }}
-        >
+        <Button variant="ghost" onClick={saveCycle} disabled={saving} className="animate-fade-in" style={{ animationDelay: "2s" }}>
           {saving ? "Saving..." : "See Results"}
         </Button>
-        {/* Auto transition after delay */}
         <AutoReveal onComplete={saveCycle} />
       </div>
     );
@@ -195,7 +214,7 @@ function PaydayPage() {
     <div className="animate-fade-in space-y-6">
       <div className="flex justify-between items-end">
         <div>
-          <p className="text-sm uppercase tracking-wider text-muted-foreground">Your Plan for May</p>
+          <p className="text-sm uppercase tracking-wider text-muted-foreground">Your Plan</p>
           <h1 className="font-display text-4xl font-semibold">Ready to Spend</h1>
         </div>
         <div className="text-right">
@@ -218,23 +237,32 @@ function PaydayPage() {
       <div className="space-y-4">
         <h3 className="font-display text-xl font-semibold">Buy This Month</h3>
         <div className="space-y-3">
-          {picked.map((it) => (
-            <article key={it.id} className="flex items-center gap-4 rounded-3xl border border-border/60 bg-card p-5 shadow-soft animate-scale-in">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-2xl">{it.emoji}</div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="truncate font-semibold">{it.name}</h3>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
-                    {(it as any).score?.toFixed(1)}
-                  </span>
+          {picked.map((it) => {
+            const bought = purchasedIds.has(it.id);
+            return (
+              <article key={it.id} className="flex items-center gap-4 rounded-3xl border border-border/60 bg-card p-5 shadow-soft animate-scale-in">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-2xl">{it.emoji}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="truncate font-semibold">{it.name}</h3>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
+                      {(it as any).score?.toFixed(1)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{formatMoney(Number(it.price))} · {it.category}</p>
                 </div>
-                <p className="text-sm text-muted-foreground">{formatMoney(Number(it.price))} · {it.category}</p>
-              </div>
-              <Button size="sm" variant="outline" className="rounded-full h-10 px-4">
-                <CheckCircle2 className="mr-1 h-4 w-4" /> Buy
-              </Button>
-            </article>
-          ))}
+                <Button
+                  size="sm"
+                  variant={bought ? "default" : "outline"}
+                  onClick={() => !bought && markBought(it)}
+                  disabled={bought}
+                  className="rounded-full h-10 px-4 shrink-0"
+                >
+                  <CheckCircle2 className="mr-1 h-4 w-4" /> {bought ? "Bought!" : "Buy"}
+                </Button>
+              </article>
+            );
+          })}
           {picked.length === 0 && (
             <div className="rounded-3xl border border-dashed border-border p-10 text-center text-muted-foreground">
               Nothing fits this month's budget.

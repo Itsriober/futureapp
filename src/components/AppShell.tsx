@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Sparkles, Wallet, DollarSign, User } from "lucide-react";
+import { Home, Sparkles, Wallet, DollarSign, User } from "lucide-react";
 import { ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { AddItemDialog } from "./AddItemDialog";
@@ -8,10 +8,11 @@ import { CATEGORY_EMOJI, Category } from "@/lib/data";
 import { toast } from "sonner";
 
 const tabs = [
-  { to: "/app", label: "Wishlist", icon: Sparkles },
-  { to: "/app/expenses", label: "Expenses", icon: Wallet },
-  { to: "/app/payday", label: "Payday", icon: DollarSign },
-  { to: "/app/profile", label: "You", icon: User },
+  { to: "/app", label: "Home", icon: Home, exact: true },
+  { to: "/app/wishlist", label: "Wishlist", icon: Sparkles, exact: false },
+  { to: "/app/expenses", label: "Expenses", icon: Wallet, exact: false },
+  { to: "/app/payday", label: "Payday", icon: DollarSign, exact: false },
+  { to: "/app/profile", label: "You", icon: User, exact: false },
 ] as const;
 
 interface NewItemInput {
@@ -37,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
     if (error) toast.error(error.message);
     else {
-      toast.success("Captured!");
+      toast.success(`${input.name} added ✓`);
       window.dispatchEvent(new CustomEvent("wishlist-updated"));
     }
   };
@@ -52,9 +53,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <nav className="fixed inset-x-0 bottom-4 z-30 mx-auto w-[min(92%,28rem)]">
         <div className="rounded-3xl border border-border/60 bg-card/90 p-2 shadow-pop backdrop-blur">
-          <ul className="grid grid-cols-4">
+          <ul className="grid grid-cols-5">
             {tabs.map((t) => {
-              const active = pathname === t.to || (t.to !== "/app" && pathname.startsWith(t.to));
+              const active = t.exact ? pathname === t.to : pathname === t.to || pathname.startsWith(t.to + "/") || pathname.startsWith(t.to + ".");
               const Icon = t.icon;
               return (
                 <li key={t.to}>

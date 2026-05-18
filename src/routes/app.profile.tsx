@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { getZodiacSign, MBTI_TYPES, HOBBIES } from "@/lib/data";
 import { toast } from "sonner";
-import { LogOut, MapPin, Sparkles, User as UserIcon, Palette, Music, Utensils, Heart, History, Camera, Dices, Upload } from "lucide-react";
+import { LogOut, MapPin, Sparkles, User as UserIcon, Palette, Music, Utensils, Heart, History, Camera, Dices, Upload, Sun, Moon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -27,6 +27,14 @@ function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+
+  const toggleDark = () => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("ff.theme", next ? "dark" : "light");
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -112,6 +120,13 @@ function ProfilePage() {
         <div className="absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-black/10 blur-2xl" />
         
         <div className="relative z-10 flex justify-between items-start">
+          <button
+            onClick={toggleDark}
+            className="absolute right-0 top-0 rounded-full p-2 bg-white/20 backdrop-blur-md text-white hover:bg-white/30 transition"
+            aria-label="Toggle dark mode"
+          >
+            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
           <div className="flex gap-4 items-center">
             <button 
               onClick={() => setAvatarDialogOpen(true)}

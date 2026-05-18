@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import { Plus, Trash2, Lock, Landmark } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/app/expenses")({
   head: () => ({ meta: [{ title: "Expenses — Listi" }] }),
@@ -89,7 +90,16 @@ function ExpensesPage() {
   const totalSavings = expenses.filter(e => e.is_savings).reduce((acc, curr) => acc + curr.amount, 0);
   const free = Math.max(0, salary - totalFixed - totalSavings);
 
-  if (loading) return <div className="text-center py-20 text-muted-foreground">Loading your budget…</div>;
+  if (loading) return (
+    <div className="space-y-6">
+      <Skeleton className="h-16 w-48" />
+      <Skeleton className="h-32 w-full rounded-3xl" />
+      <Skeleton className="h-14 w-full rounded-2xl" />
+      <Skeleton className="h-16 w-full rounded-2xl" />
+      <Skeleton className="h-16 w-full rounded-2xl" />
+      <Skeleton className="h-16 w-full rounded-2xl" />
+    </div>
+  );
 
   return (
     <div className="space-y-8 animate-fade-in pb-10">

@@ -6,77 +6,13 @@ export type DbBudget = Database["public"]["Tables"]["budgets"]["Row"];
 export type DbProfile = Database["public"]["Tables"]["profiles"]["Row"];
 export type WishlistStatus = Database["public"]["Enums"]["wishlist_status"];
 
-const LS_KEYS = { budget: "ff.budget", wishlist: "ff.wishlist", profile: "ff.profile", migrated: "ff.migrated" };
-
-export interface LocalBudget { salary: number; rent: number; bills: number; subscriptions: number; }
-export interface LocalWishlistItem {
-  id: string; name: string; price: number; category: string; priority: number; emoji: string;
-  createdAt: number; status: "active" | "purchased" | "archived";
-}
-
-/** One-time migration of localStorage data into the user's account on first login. */
-export async function migrateLocalDataIfNeeded(userId: string) {
-  if (typeof window === "undefined") return;
-  if (localStorage.getItem(LS_KEYS.migrated) === userId) return;
-
-  try {
-    const rawBudget = localStorage.getItem(LS_KEYS.budget);
-    const rawList = localStorage.getItem(LS_KEYS.wishlist);
-
-    if (rawBudget) {
-      const b = JSON.parse(rawBudget) as LocalBudget;
-      if (b && (b.salary || b.rent || b.bills || b.subscriptions)) {
-        await supabase.from("budgets").upsert({
-          user_id: userId,
-          salary: b.salary || 0,
-          rent: b.rent || 0,
-          bills: b.bills || 0,
-          subscriptions: b.subscriptions || 0,
-        }, { onConflict: "user_id" });
-      }
-    }
-
-    if (rawList) {
-      const items = JSON.parse(rawList) as LocalWishlistItem[];
-      if (Array.isArray(items) && items.length) {
-        // Only migrate if the user has no items yet
-        const { count } = await supabase
-          .from("wishlist_items")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", userId);
-        if (!count) {
-          const rows = items.map((i) => ({
-            user_id: userId,
-            name: i.name,
-            price: i.price,
-            category: i.category,
-            priority: i.priority,
-            emoji: i.emoji,
-            status: i.status,
-          }));
-          await supabase.from("wishlist_items").insert(rows);
-        }
-      }
-    }
-
-    localStorage.setItem(LS_KEYS.migrated, userId);
-    // Clean local copies after successful migration
-    localStorage.removeItem(LS_KEYS.budget);
-    localStorage.removeItem(LS_KEYS.wishlist);
-    localStorage.removeItem(LS_KEYS.profile);
-  } catch (e) {
-    console.warn("Local data migration failed:", e);
-  }
-}
-
 export function freeMoney(b: { salary: number; rent: number; bills: number; subscriptions: number }) {
   return Math.max(0, (b.salary || 0) - (b.rent || 0) - (b.bills || 0) - (b.subscriptions || 0));
 }
 
 export function suggestPurchases(items: DbWishlistItem[], budget: number) {
   const active = items.filter((i) => i.status === "active");
-  
-  // Scoring formula: Score = (Priority × 2) + (Weeks on list × 0.5)
+
   const scored = active.map((it) => {
     const priority = it.priority || 1;
     const createdAt = new Date(it.created_at).getTime();
@@ -86,7 +22,7 @@ export function suggestPurchases(items: DbWishlistItem[], budget: number) {
   });
 
   const sorted = scored.sort((a, b) => b.score - a.score || Number(a.price) - Number(b.price));
-  
+
   const picked: DbWishlistItem[] = [];
   let remaining = budget;
   for (const it of sorted) {
@@ -99,7 +35,6 @@ export function suggestPurchases(items: DbWishlistItem[], budget: number) {
   return { picked, remaining };
 }
 
-
 export function formatMoney(n: number) {
   return new Intl.NumberFormat("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 }).format(n || 0);
 }
@@ -109,6 +44,35 @@ export const CATEGORIES: Category[] = ["Tech", "Fashion", "Experience", "Food", 
 export const CATEGORY_EMOJI: Record<Category, string> = {
   Tech: "💻", Fashion: "👟", Experience: "✈️", Food: "🍜", Home: "🛋️", Other: "✨",
 };
+
+export const CATEGORY_COLOR: Record<Category, string> = {
+  Tech: "bg-blue-500",
+  Fashion: "bg-pink-500",
+  Experience: "bg-teal-500",
+  Food: "bg-amber-500",
+  Home: "bg-green-500",
+  Other: "bg-coral",
+};
+
+export const CATEGORY_BORDER_COLOR: Record<Category, string> = {
+  Tech: "border-blue-500",
+  Fashion: "border-pink-500",
+  Experience: "border-teal-500",
+  Food: "border-amber-500",
+  Home: "border-green-500",
+  Other: "border-coral",
+};
+
+export function getCountdown(targetDate: string | null): { label: string; variant: "normal" | "warning" | "overdue" } | null {
+  if (!targetDate) return null;
+  const now = new Date();
+  const target = new Date(targetDate);
+  const diffMs = target.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return { label: "❌ Overdue", variant: "overdue" };
+  if (diffDays < 7) return { label: `⚠️ ${diffDays} days left`, variant: "warning" };
+  return { label: `📅 ${diffDays} days`, variant: "normal" };
+}
 
 export const MBTI_TYPES = [
   "INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP",
@@ -138,4 +102,3 @@ export function getZodiacSign(date: string | Date) {
   if ((m === 1 && day >= 20) || (m === 2 && day <= 18)) return { sign: "Aquarius", symbol: "♒" };
   return { sign: "Pisces", symbol: "♓" };
 }
-

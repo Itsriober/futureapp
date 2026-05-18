@@ -14,12 +14,11 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
-import { Route as AppSuggestionsRouteImport } from './routes/app.suggestions'
+import { Route as AppWishlistRouteImport } from './routes/app.wishlist'
 import { Route as AppProfileRouteImport } from './routes/app.profile'
 import { Route as AppPaydayRouteImport } from './routes/app.payday'
 import { Route as AppHistoryRouteImport } from './routes/app.history'
 import { Route as AppExpensesRouteImport } from './routes/app.expenses'
-import { Route as AppBudgetRouteImport } from './routes/app.budget'
 import { Route as AppWishlistIdRouteImport } from './routes/app.wishlist.$id'
 
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -47,9 +46,9 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSuggestionsRoute = AppSuggestionsRouteImport.update({
-  id: '/suggestions',
-  path: '/suggestions',
+const AppWishlistRoute = AppWishlistRouteImport.update({
+  id: '/wishlist',
+  path: '/wishlist',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProfileRoute = AppProfileRouteImport.update({
@@ -72,15 +71,10 @@ const AppExpensesRoute = AppExpensesRouteImport.update({
   path: '/expenses',
   getParentRoute: () => AppRoute,
 } as any)
-const AppBudgetRoute = AppBudgetRouteImport.update({
-  id: '/budget',
-  path: '/budget',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppWishlistIdRoute = AppWishlistIdRouteImport.update({
-  id: '/wishlist/$id',
-  path: '/wishlist/$id',
-  getParentRoute: () => AppRoute,
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppWishlistRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -88,12 +82,11 @@ export interface FileRoutesByFullPath {
   '/app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
   '/onboarding': typeof OnboardingRoute
-  '/app/budget': typeof AppBudgetRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/history': typeof AppHistoryRoute
   '/app/payday': typeof AppPaydayRoute
   '/app/profile': typeof AppProfileRoute
-  '/app/suggestions': typeof AppSuggestionsRoute
+  '/app/wishlist': typeof AppWishlistRouteWithChildren
   '/app/': typeof AppIndexRoute
   '/app/wishlist/$id': typeof AppWishlistIdRoute
 }
@@ -101,12 +94,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/onboarding': typeof OnboardingRoute
-  '/app/budget': typeof AppBudgetRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/history': typeof AppHistoryRoute
   '/app/payday': typeof AppPaydayRoute
   '/app/profile': typeof AppProfileRoute
-  '/app/suggestions': typeof AppSuggestionsRoute
+  '/app/wishlist': typeof AppWishlistRouteWithChildren
   '/app': typeof AppIndexRoute
   '/app/wishlist/$id': typeof AppWishlistIdRoute
 }
@@ -116,12 +108,11 @@ export interface FileRoutesById {
   '/app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
   '/onboarding': typeof OnboardingRoute
-  '/app/budget': typeof AppBudgetRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/history': typeof AppHistoryRoute
   '/app/payday': typeof AppPaydayRoute
   '/app/profile': typeof AppProfileRoute
-  '/app/suggestions': typeof AppSuggestionsRoute
+  '/app/wishlist': typeof AppWishlistRouteWithChildren
   '/app/': typeof AppIndexRoute
   '/app/wishlist/$id': typeof AppWishlistIdRoute
 }
@@ -132,12 +123,11 @@ export interface FileRouteTypes {
     | '/app'
     | '/auth'
     | '/onboarding'
-    | '/app/budget'
     | '/app/expenses'
     | '/app/history'
     | '/app/payday'
     | '/app/profile'
-    | '/app/suggestions'
+    | '/app/wishlist'
     | '/app/'
     | '/app/wishlist/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -145,12 +135,11 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/onboarding'
-    | '/app/budget'
     | '/app/expenses'
     | '/app/history'
     | '/app/payday'
     | '/app/profile'
-    | '/app/suggestions'
+    | '/app/wishlist'
     | '/app'
     | '/app/wishlist/$id'
   id:
@@ -159,12 +148,11 @@ export interface FileRouteTypes {
     | '/app'
     | '/auth'
     | '/onboarding'
-    | '/app/budget'
     | '/app/expenses'
     | '/app/history'
     | '/app/payday'
     | '/app/profile'
-    | '/app/suggestions'
+    | '/app/wishlist'
     | '/app/'
     | '/app/wishlist/$id'
   fileRoutesById: FileRoutesById
@@ -213,11 +201,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/suggestions': {
-      id: '/app/suggestions'
-      path: '/suggestions'
-      fullPath: '/app/suggestions'
-      preLoaderRoute: typeof AppSuggestionsRouteImport
+    '/app/wishlist': {
+      id: '/app/wishlist'
+      path: '/wishlist'
+      fullPath: '/app/wishlist'
+      preLoaderRoute: typeof AppWishlistRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/profile': {
@@ -248,43 +236,44 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppExpensesRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/budget': {
-      id: '/app/budget'
-      path: '/budget'
-      fullPath: '/app/budget'
-      preLoaderRoute: typeof AppBudgetRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/app/wishlist/$id': {
       id: '/app/wishlist/$id'
-      path: '/wishlist/$id'
+      path: '/$id'
       fullPath: '/app/wishlist/$id'
       preLoaderRoute: typeof AppWishlistIdRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppWishlistRoute
     }
   }
 }
 
+interface AppWishlistRouteChildren {
+  AppWishlistIdRoute: typeof AppWishlistIdRoute
+}
+
+const AppWishlistRouteChildren: AppWishlistRouteChildren = {
+  AppWishlistIdRoute: AppWishlistIdRoute,
+}
+
+const AppWishlistRouteWithChildren = AppWishlistRoute._addFileChildren(
+  AppWishlistRouteChildren,
+)
+
 interface AppRouteChildren {
-  AppBudgetRoute: typeof AppBudgetRoute
   AppExpensesRoute: typeof AppExpensesRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppPaydayRoute: typeof AppPaydayRoute
   AppProfileRoute: typeof AppProfileRoute
-  AppSuggestionsRoute: typeof AppSuggestionsRoute
+  AppWishlistRoute: typeof AppWishlistRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
-  AppWishlistIdRoute: typeof AppWishlistIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppBudgetRoute: AppBudgetRoute,
   AppExpensesRoute: AppExpensesRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppPaydayRoute: AppPaydayRoute,
   AppProfileRoute: AppProfileRoute,
-  AppSuggestionsRoute: AppSuggestionsRoute,
+  AppWishlistRoute: AppWishlistRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
-  AppWishlistIdRoute: AppWishlistIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

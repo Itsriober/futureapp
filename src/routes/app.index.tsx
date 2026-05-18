@@ -1,118 +1,225 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { CATEGORIES, CATEGORY_EMOJI, Category, DbWishlistItem } from "@/lib/data";
-import { WishlistCard } from "@/components/WishlistCard";
-import { AddItemDialog, NewItemInput } from "@/components/AddItemDialog";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
-import { toast } from "sonner";
+import { formatMoney, DbWishlistItem, getCountdown } from "@/lib/data";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/")({
-  head: () => ({ meta: [{ title: "Wishlist — FutureFlow" }] }),
-  component: WishlistPage,
+  head: () => ({ meta: [{ title: "Home — Listi" }] }),
+  component: DashboardPage,
 });
 
-function WishlistPage() {
-  const { user } = useAuth();
-  const [items, setItems] = useState<DbWishlistItem[]>([]);
-  const [filter, setFilter] = useState<Category | "All">("All");
-  const [loading, setLoading] = useState(true);
+interface DashboardData {
+  salary: number;
+  totalFixed: number;
+  totalSavings: number;
+  freeBalance: number;
+  streak: number;
+  cyclesCount: number;
+  items: DbWishlistItem[];
+}
 
-  const fetchItems = async () => {
-    const { data, error } = await supabase
-      .from("wishlist_items")
-      .select("*")
-      .eq("status", "active")
-      .order("priority", { ascending: false })
-      .order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
-    else setItems(data ?? []);
-    setLoading(false);
-  };
+function DashboardPage() {
+  const { user } = useAuth();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
-    fetchItems();
-    
-    window.addEventListener("wishlist-updated", fetchItems);
-    return () => window.removeEventListener("wishlist-updated", fetchItems);
+    (async () => {
+      const [{ data: budget }, { data: exps }, { data: profileData }, { data: wishlistData }, { data: cyclesData }] = await Promise.all([
+        supabase.from("budgets").select("salary").eq("user_id", user.id).maybeSingle(),
+        (supabase.from("fixed_expenses" as any).select("amount,is_savings").eq("user_id", user.id) as any),
+        supabase.from("profiles").select("streak").eq("user_id", user.id).maybeSingle(),
+        supabase.from("wishlist_items").select("*").eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false }),
+        (supabase.from("payday_cycles" as any).select("id").eq("user_id", user.id) as any),
+      ]);
+
+      const salary = Number(budget?.salary ?? 0);
+      const totalFixed = (exps ?? []).filter((e: any) => !e.is_savings).reduce((acc: number, e: any) => acc + Number(e.amount), 0);
+      const totalSavings = (exps ?? []).filter((e: any) => e.is_savings).reduce((acc: number, e: any) => acc + Number(e.amount), 0);
+      const freeBalance = Math.max(0, salary - totalFixed - totalSavings);
+
+      setData({
+        salary,
+        totalFixed,
+        totalSavings,
+        freeBalance,
+        streak: Number(profileData?.streak ?? 0),
+        cyclesCount: (cyclesData ?? []).length,
+        items: (wishlistData ?? []) as DbWishlistItem[],
+      });
+      setLoading(false);
+    })();
   }, [user]);
 
+  if (loading) return <DashboardSkeleton />;
+  if (!data) return null;
 
-  const visible = useMemo(
-    () => (filter === "All" ? items : items.filter((i) => i.category === filter)),
-    [items, filter]
-  );
+  const { salary, totalFixed, totalSavings, freeBalance, streak, cyclesCount, items } = data;
 
-  const onAdd = async (input: NewItemInput) => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("wishlist_items")
-      .insert({
-        user_id: user.id,
-        name: input.name,
-        price: input.price,
-        category: input.category,
-        priority: input.priority,
-        emoji: CATEGORY_EMOJI[input.category],
-      })
-      .select()
-      .single();
-    if (error) { toast.error(error.message); return; }
-    setItems((prev) => [data!, ...prev]);
-  };
+  // Top picks: score = priority×2 + weeks×0.5, top 3
+  const topPicks = items
+    .map((it) => {
+      const weeks = Math.max(0, (Date.now() - new Date(it.created_at).getTime()) / (1000 * 60 * 60 * 24 * 7));
+      return { ...it, score: (it.priority * 2) + (weeks * 0.5) };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
 
-  const onPriority = async (id: string, delta: number) => {
-    const cur = items.find((i) => i.id === id);
-    if (!cur) return;
-    const next = Math.min(5, Math.max(1, cur.priority + delta));
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, priority: next } : i)));
-    const { error } = await supabase.from("wishlist_items").update({ priority: next }).eq("id", id);
-    if (error) toast.error(error.message);
-  };
+  // Savings progress
+  const estimatedSavings = totalSavings * cyclesCount;
+  const nextMilestone = Math.max(10000, Math.ceil(estimatedSavings / 10000) * 10000);
+  const savingsProgress = estimatedSavings > 0 ? Math.min(100, (estimatedSavings / nextMilestone) * 100) : 0;
 
-  const onDelete = async (id: string) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
-    if (error) toast.error(error.message);
-  };
+  const commitmentPct = salary > 0 ? Math.min(100, Math.round(((totalFixed + totalSavings) / salary) * 100)) : 0;
 
   return (
-    <div>
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="text-sm uppercase tracking-wider text-muted-foreground">Your wishlist</p>
-          <h1 className="font-display text-4xl font-semibold">What you want</h1>
+    <div className="space-y-6 animate-fade-in pb-10">
+      {/* Zone 1 — Hero Financial Card */}
+      <div className="rounded-[2rem] bg-gradient-warm p-6 text-white shadow-pop">
+        <p className="text-xs uppercase tracking-wider opacity-75">Free This Month</p>
+        <p className="font-display text-5xl font-semibold mt-1">{formatMoney(freeBalance)}</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-4 text-sm">
+          <div>
+            <p className="opacity-70">Salary In</p>
+            <p className="font-semibold">{formatMoney(salary)}</p>
+          </div>
+          <div>
+            <p className="opacity-70">Total Committed</p>
+            <p className="font-semibold">{formatMoney(totalFixed + totalSavings)}</p>
+          </div>
         </div>
-        <AddItemDialog onAdd={onAdd} />
+        <div className="mt-4">
+          <div className="mb-1 flex justify-between text-xs opacity-70">
+            <span>% committed</span>
+            <span>{commitmentPct}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-white/20 overflow-hidden">
+            <div className="h-full rounded-full bg-white/70 transition-all" style={{ width: `${commitmentPct}%` }} />
+          </div>
+        </div>
+        {totalSavings > 0 && (
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-xs font-semibold">
+            🔒 {formatMoney(totalSavings)} locked
+          </div>
+        )}
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        {(["All", ...CATEGORIES] as const).map((c) => (
-          <button
-            key={c}
-            onClick={() => setFilter(c)}
-            className={`rounded-full border px-3 py-1.5 text-sm transition ${
-              filter === c ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:border-foreground/30"
-            }`}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-6 space-y-3">
-        {loading ? (
-          <div className="rounded-3xl border border-dashed border-border p-10 text-center text-muted-foreground">Loading your wants…</div>
-        ) : visible.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-border p-10 text-center">
-            <p className="text-4xl">✨</p>
-            <h2 className="mt-3 font-display text-2xl">Capture your first want</h2>
-            <p className="mt-1 text-sm text-muted-foreground">A gadget, a trip, a dinner — anything you've been thinking about.</p>
+      {/* Zone 2 — Top Picks */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <h2 className="font-display text-xl font-semibold">Top Picks</h2>
+        </div>
+        {topPicks.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border p-6 text-center">
+            <p className="text-sm text-muted-foreground">Add items to your wishlist to see picks.</p>
+            <Link to="/app/wishlist" className="mt-2 inline-block text-sm text-primary underline underline-offset-4">Go to Wishlist →</Link>
           </div>
         ) : (
-          visible.map((it) => <WishlistCard key={it.id} item={it} onPriority={onPriority} onDelete={onDelete} />)
+          <div className="space-y-2">
+            {topPicks.map((it) => {
+              const affordable = Number(it.price) <= freeBalance;
+              const countdown = getCountdown(it.target_date);
+              return (
+                <Link key={it.id} to="/app/wishlist/$id" params={{ id: it.id }}
+                  className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-soft hover:shadow-pop transition-all hover:-translate-y-0.5"
+                >
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent text-2xl">{it.emoji}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{it.name}</p>
+                    <p className="text-sm text-muted-foreground">{formatMoney(Number(it.price))}</p>
+                    {countdown && (
+                      <p className={cn("text-xs mt-0.5", countdown.variant === "overdue" && "text-red-500", countdown.variant === "warning" && "text-amber-500")}>{countdown.label}</p>
+                    )}
+                  </div>
+                  <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium shrink-0",
+                    affordable ? "bg-green-50 text-green-600" : "bg-muted text-muted-foreground"
+                  )}>
+                    {affordable ? "✓ Affordable" : `${formatMoney(Number(it.price) - freeBalance)} away`}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
         )}
+      </div>
+
+      {/* Zone 3 — Stats Row */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Streak */}
+        <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-soft">
+          {streak > 0 ? (
+            <>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl">🔥</span>
+                <span className="font-display text-3xl font-semibold">{streak}</span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">payday cycles</p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl">🔥</p>
+              <p className="mt-1 text-sm text-muted-foreground">Start your streak</p>
+            </>
+          )}
+        </div>
+        {/* Savings progress */}
+        <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-soft">
+          {totalSavings > 0 ? (
+            <>
+              <p className="font-display text-xl font-semibold">{formatMoney(estimatedSavings)}</p>
+              <p className="text-xs text-muted-foreground mb-2">saved (est.)</p>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${savingsProgress}%` }} />
+              </div>
+              <p className="mt-1 text-[10px] text-muted-foreground">Next: {formatMoney(nextMilestone)}</p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">Set a savings lock in Expenses to track progress</p>
+          )}
+        </div>
+      </div>
+
+      {/* Zone 4 — Quick Actions */}
+      <div className="flex gap-3">
+        <Link to="/app/payday"
+          className="flex-1 rounded-full bg-foreground text-background py-3 text-center text-sm font-semibold transition hover:opacity-90 shadow-pop"
+        >
+          Run Payday →
+        </Link>
+        <Link to="/app/history"
+          className="flex-1 rounded-full border border-border bg-card py-3 text-center text-sm font-semibold transition hover:border-foreground/30"
+        >
+          View History →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 pb-10">
+      <Skeleton className="h-52 w-full rounded-[2rem]" />
+      <div>
+        <Skeleton className="h-6 w-32 mb-4" />
+        <div className="space-y-2">
+          <Skeleton className="h-16 w-full rounded-2xl" />
+          <Skeleton className="h-16 w-full rounded-2xl" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Skeleton className="h-24 rounded-2xl" />
+        <Skeleton className="h-24 rounded-2xl" />
+      </div>
+      <div className="flex gap-3">
+        <Skeleton className="h-12 flex-1 rounded-full" />
+        <Skeleton className="h-12 flex-1 rounded-full" />
       </div>
     </div>
   );

@@ -2,7 +2,6 @@ import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useAuth } from "@/lib/auth";
-import { migrateLocalDataIfNeeded } from "@/lib/data";
 
 export const Route = createFileRoute("/app")({
   component: AppLayout,
@@ -15,10 +14,6 @@ function AppLayout() {
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
   }, [user, loading, navigate]);
-
-  useEffect(() => {
-    if (user) migrateLocalDataIfNeeded(user.id);
-  }, [user]);
 
   if (loading || !user) {
     return (

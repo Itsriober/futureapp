@@ -1,8 +1,12 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AuthProvider } from "@/lib/auth";
-
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 1000 * 60 * 2, retry: 1 } },
+});
 
 import appCss from "../styles.css?url";
 
@@ -79,7 +83,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && import.meta.env.PROD) {
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("/sw.js").then(
           (registration) => console.log("SW registered:", registration.scope),
@@ -90,10 +94,12 @@ function RootComponent() {
   }, []);
 
   return (
-    <AuthProvider>
-      <Outlet />
-      <Toaster />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <Outlet />
+        <Toaster position="top-center" />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }
 
