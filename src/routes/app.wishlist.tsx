@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { CATEGORIES, CATEGORY_EMOJI, CATEGORY_COLOR, Category, DbWishlistItem } from "@/lib/data";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { CATEGORIES, CATEGORY_EMOJI, CATEGORY_COLOR, Category, DbWishlistItem, DbFixedExpense } from "@/lib/data";
 import { WishlistCard } from "@/components/WishlistCard";
 import { AddItemDialog, NewItemInput } from "@/components/AddItemDialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,83 +17,119 @@ export const Route = createFileRoute("/app/wishlist")({
 
 function WishlistPage() {
   const { user } = useAuth();
-  const [items, setItems] = useState<DbWishlistItem[]>([]);
+  const userId = user?.id ?? "";
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<Category | "All">("All");
-  const [loading, setLoading] = useState(true);
-  const [freeBalance, setFreeBalance] = useState(0);
 
+  const { data: items = [], isLoading: loadingItems } = useQuery<DbWishlistItem[]>({
+    queryKey: ["wishlist", userId],
+    queryFn: async () => {
+      const r = await supabase.from("wishlist_items").select("*").eq("user_id", userId).eq("status", "active")
+        .order("priority", { ascending: false }).order("created_at", { ascending: false });
+      return (r.data ?? []) as DbWishlistItem[];
+    },
+    enabled: !!userId,
+  });
+
+  const { data: budgetData } = useQuery({
+    queryKey: ["budget", userId],
+    queryFn: async () => {
+      const r = await supabase.from("budgets").select("salary").eq("user_id", userId).maybeSingle();
+      return r.data;
+    },
+    enabled: !!userId,
+  });
+
+  const { data: expensesData } = useQuery<DbFixedExpense[]>({
+    queryKey: ["expenses", userId],
+    queryFn: async () => {
+      const r = await supabase.from("fixed_expenses").select("amount,is_savings").eq("user_id", userId);
+      return (r.data ?? []) as DbFixedExpense[];
+    },
+    enabled: !!userId,
+  });
+
+  const freeBalance = useMemo(() => {
+    if (!budgetData) return 0;
+    const totalOut = (expensesData ?? []).reduce((acc, e) => acc + Number(e.amount), 0);
+    return Math.max(0, Number(budgetData.salary) - totalOut);
+  }, [budgetData, expensesData]);
+
+  // Invalidate wishlist when external mutations fire (e.g., from AppShell FAB or item detail)
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
+    const handler = () => queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
+    window.addEventListener("wishlist-updated", handler);
+    return () => window.removeEventListener("wishlist-updated", handler);
+  }, [userId, queryClient]);
 
-    const fetchItems = async () => {
-      const { data, error } = await supabase
-        .from("wishlist_items")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .order("priority", { ascending: false })
-        .order("created_at", { ascending: false });
-      if (error) toast.error(error.message);
-      else setItems(data ?? []);
-      setLoading(false);
-    };
-
-    fetchItems();
-
-    // Fetch free balance for affordability chips
-    (async () => {
-      const [{ data: budget }, { data: exps }] = await Promise.all([
-        supabase.from("budgets").select("salary").eq("user_id", user.id).maybeSingle(),
-        (supabase.from("fixed_expenses" as any).select("amount,is_savings").eq("user_id", user.id) as any),
-      ]);
-      if (budget) {
-        const totalOut = (exps ?? []).reduce((acc: number, e: any) => acc + Number(e.amount), 0);
-        setFreeBalance(Math.max(0, Number(budget.salary) - totalOut));
-      }
-    })();
-
-    window.addEventListener("wishlist-updated", fetchItems);
-    return () => window.removeEventListener("wishlist-updated", fetchItems);
-  }, [user]);
-
-  const visible = useMemo(
-    () => (filter === "All" ? items : items.filter((i) => i.category === filter)),
-    [items, filter]
-  );
-
-  const onAdd = async (input: NewItemInput) => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("wishlist_items")
-      .insert({
-        user_id: user.id,
+  const addMutation = useMutation({
+    mutationFn: async (input: NewItemInput) => {
+      const r = await supabase.from("wishlist_items").insert({
+        user_id: userId,
         name: input.name,
         price: input.price,
         category: input.category,
         priority: input.priority,
         emoji: CATEGORY_EMOJI[input.category],
-      })
-      .select()
-      .single();
-    if (error) { toast.error(error.message); return; }
-    toast.success(`${input.name} added ✓`);
-    setItems((prev) => [data!, ...prev]);
-  };
+      }).select().single();
+      if (r.error) throw r.error;
+      return r.data as DbWishlistItem;
+    },
+    onSuccess: (newItem) => {
+      queryClient.setQueryData<DbWishlistItem[]>(["wishlist", userId], (old = []) => [newItem, ...old]);
+      toast.success(`${newItem.name} added ✓`);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
 
-  const onPriority = async (id: string, delta: number) => {
-    const cur = items.find((i) => i.id === id);
+  const priorityMutation = useMutation({
+    mutationFn: async ({ id, next }: { id: string; next: number }) => {
+      const r = await supabase.from("wishlist_items").update({ priority: next }).eq("id", id);
+      if (r.error) throw r.error;
+    },
+    onMutate: async ({ id, next }) => {
+      await queryClient.cancelQueries({ queryKey: ["wishlist", userId] });
+      const prev = queryClient.getQueryData<DbWishlistItem[]>(["wishlist", userId]);
+      queryClient.setQueryData<DbWishlistItem[]>(["wishlist", userId], old =>
+        (old ?? []).map(i => (i.id === id ? { ...i, priority: next } : i))
+      );
+      return { prev };
+    },
+    onError: (_err: any, _vars, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(["wishlist", userId], ctx.prev);
+      toast.error("Failed to update priority");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const r = await supabase.from("wishlist_items").delete().eq("id", id);
+      if (r.error) throw r.error;
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ["wishlist", userId] });
+      const prev = queryClient.getQueryData<DbWishlistItem[]>(["wishlist", userId]);
+      queryClient.setQueryData<DbWishlistItem[]>(["wishlist", userId], old => (old ?? []).filter(i => i.id !== id));
+      return { prev };
+    },
+    onError: (_err: any, _id, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(["wishlist", userId], ctx.prev);
+      toast.error("Failed to delete item");
+    },
+  });
+
+  const onPriority = (id: string, delta: number) => {
+    const cur = items.find(i => i.id === id);
     if (!cur) return;
     const next = Math.min(5, Math.max(1, cur.priority + delta));
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, priority: next } : i)));
-    const { error } = await supabase.from("wishlist_items").update({ priority: next }).eq("id", id);
-    if (error) toast.error(error.message);
+    priorityMutation.mutate({ id, next });
   };
 
-  const onDelete = async (id: string) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
-    if (error) toast.error(error.message);
-  };
+  const visible = useMemo(
+    () => (filter === "All" ? items : items.filter(i => i.category === filter)),
+    [items, filter]
+  );
 
   return (
     <div className="animate-fade-in">
@@ -101,10 +138,9 @@ function WishlistPage() {
           <p className="text-sm uppercase tracking-wider text-muted-foreground">Your wishlist</p>
           <h1 className="font-display text-4xl font-semibold">What you want</h1>
         </div>
-        <AddItemDialog onAdd={onAdd} />
+        <AddItemDialog onAdd={async (input) => { await addMutation.mutateAsync(input); }} />
       </div>
 
-      {/* Filter bar */}
       <div className="mt-6 flex flex-wrap gap-2">
         {(["All", ...CATEGORIES] as const).map((c) => {
           const colorClass = c !== "All" ? CATEGORY_COLOR[c as Category] : "";
@@ -119,9 +155,7 @@ function WishlistPage() {
                   : "border-border bg-card hover:border-foreground/30"
               )}
             >
-              {c !== "All" && (
-                <span className={cn("h-2 w-2 rounded-full", colorClass)} />
-              )}
+              {c !== "All" && <span className={cn("h-2 w-2 rounded-full", colorClass)} />}
               {c}
             </button>
           );
@@ -129,12 +163,8 @@ function WishlistPage() {
       </div>
 
       <div className="mt-6 space-y-3">
-        {loading ? (
-          <>
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-40 w-full rounded-3xl" />
-            ))}
-          </>
+        {loadingItems ? (
+          <>{[0, 1, 2].map((i) => <Skeleton key={i} className="h-40 w-full rounded-3xl" />)}</>
         ) : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-border p-10 text-center">
             <svg className="mx-auto h-16 w-16 text-muted-foreground/30" viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -156,7 +186,7 @@ function WishlistPage() {
               item={it}
               freeBalance={freeBalance}
               onPriority={onPriority}
-              onDelete={onDelete}
+              onDelete={(id) => deleteMutation.mutate(id)}
               animationDelay={idx * 50}
             />
           ))
