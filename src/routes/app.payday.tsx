@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { DbWishlistItem, formatMoney, suggestPurchases } from "@/lib/data";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DbWishlistItem, DbBudget, DbFixedExpense, formatMoney, suggestPurchases } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,44 +18,60 @@ export const Route = createFileRoute("/app/payday")({
 
 function PaydayPage() {
   const { user } = useAuth();
+  const userId = user?.id ?? "";
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<"input" | "reveal" | "result">("input");
-  const [salary, setSalary] = useState<number>(0);
-  const [fixedExpenses, setFixedExpenses] = useState<{ name: string; amount: number }[]>([]);
-  const [savingsLock, setSavingsLock] = useState<number>(0);
-  const [items, setItems] = useState<DbWishlistItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [salaryOverride, setSalaryOverride] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [purchasedIds, setPurchasedIds] = useState<Set<string>>(new Set());
   const [cycleId, setCycleId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const [{ data: budget }, { data: fixed }, { data: list }] = await Promise.all([
-        supabase.from("budgets").select("*").eq("user_id", user.id).maybeSingle(),
-        (supabase.from("fixed_expenses" as any).select("*").eq("user_id", user.id) as any),
-        supabase.from("wishlist_items").select("*").eq("user_id", user.id).eq("status", "active"),
-      ]);
+  const { data: budget, isLoading: loadingBudget } = useQuery<DbBudget | null>({
+    queryKey: ["budget", userId],
+    queryFn: async () => {
+      const r = await supabase.from("budgets").select("*").eq("user_id", userId).maybeSingle();
+      return (r.data ?? null) as DbBudget | null;
+    },
+    enabled: !!userId,
+  });
 
-      if (budget) {
-        setSalary(Number(budget.salary));
-        if (!fixed || fixed.length === 0) {
-          const legacy = [
-            { name: "Rent", amount: Number(budget.rent) },
-            { name: "Bills", amount: Number(budget.bills) },
-            { name: "Subscriptions", amount: Number(budget.subscriptions) },
-          ].filter(i => i.amount > 0);
-          setFixedExpenses(legacy);
-        } else {
-          setFixedExpenses(fixed.filter((f: any) => !f.is_savings).map((f: any) => ({ name: f.name, amount: Number(f.amount) })));
-          const savings = fixed.filter((f: any) => f.is_savings).reduce((acc: number, curr: any) => acc + Number(curr.amount), 0);
-          setSavingsLock(savings);
-        }
-      }
-      setItems(list ?? []);
-      setLoading(false);
-    })();
-  }, [user]);
+  const { data: fixed = [], isLoading: loadingFixed } = useQuery<DbFixedExpense[]>({
+    queryKey: ["expenses", userId],
+    queryFn: async () => {
+      const r = await supabase.from("fixed_expenses").select("*").eq("user_id", userId);
+      return (r.data ?? []) as DbFixedExpense[];
+    },
+    enabled: !!userId,
+  });
+
+  const { data: items = [], isLoading: loadingItems } = useQuery<DbWishlistItem[]>({
+    queryKey: ["wishlist", userId],
+    queryFn: async () => {
+      const r = await supabase.from("wishlist_items").select("*").eq("user_id", userId).eq("status", "active");
+      return (r.data ?? []) as DbWishlistItem[];
+    },
+    enabled: !!userId,
+  });
+
+  const loading = loadingBudget || loadingFixed || loadingItems;
+
+  const derivedSalary = Number(budget?.salary ?? 0);
+  const salary = salaryOverride ?? derivedSalary;
+  const setSalary = (n: number) => setSalaryOverride(n);
+
+  const { fixedExpenses, savingsLock } = useMemo(() => {
+    if (fixed.length === 0 && budget) {
+      const legacy = [
+        { name: "Rent", amount: Number(budget.rent) },
+        { name: "Bills", amount: Number(budget.bills) },
+        { name: "Subscriptions", amount: Number(budget.subscriptions) },
+      ].filter(i => i.amount > 0);
+      return { fixedExpenses: legacy, savingsLock: 0 };
+    }
+    const fe = fixed.filter(f => !f.is_savings).map(f => ({ name: f.name, amount: Number(f.amount) }));
+    const sl = fixed.filter(f => f.is_savings).reduce((acc, curr) => acc + Number(curr.amount), 0);
+    return { fixedExpenses: fe, savingsLock: sl };
+  }, [fixed, budget]);
 
   const totalFixed = fixedExpenses.reduce((acc, curr) => acc + curr.amount, 0);
   const discretionary = Math.max(0, salary - totalFixed - savingsLock);
@@ -70,33 +87,33 @@ function PaydayPage() {
     setSaving(true);
 
     // 1. Save the cycle record
-    const { data: cycle, error: cErr } = await (supabase.from("payday_cycles" as any).insert({
+    const { data: cycle, error: cErr } = await supabase.from("payday_cycles").insert({
       user_id: user.id,
       salary_amount: salary,
       total_deductions: totalFixed,
       savings_amount: savingsLock,
       discretionary_balance: discretionary,
       cycle_month: new Date().toISOString().split('T')[0]
-    }).select().single() as any);
+    }).select().single();
 
-    if (cErr) { toast.error(cErr.message); setSaving(false); return; }
+    if (cErr || !cycle) { toast.error(cErr?.message ?? "Failed to save cycle"); setSaving(false); return; }
     setCycleId(cycle.id);
 
     // 2. Save allocations
     const allocations = picked.map(it => ({ cycle_id: cycle.id, wishlist_item_id: it.id, status: 'allocated' }));
     if (allocations.length > 0) {
-      const { error: aErr } = await (supabase.from("cycle_allocations" as any).insert(allocations) as any);
+      const { error: aErr } = await supabase.from("cycle_allocations").insert(allocations);
       if (aErr) toast.error(aErr.message);
     }
 
     // 3. Update streak
-    const { data: lastCycle } = await (supabase.from("payday_cycles" as any)
+    const { data: lastCycle } = await supabase.from("payday_cycles")
       .select("cycle_month")
       .eq("user_id", user.id)
       .neq("id", cycle.id)
       .order("cycle_month", { ascending: false })
       .limit(1)
-      .maybeSingle() as any);
+      .maybeSingle();
 
     let newStreak = 1;
     if (lastCycle?.cycle_month) {
@@ -109,6 +126,9 @@ function PaydayPage() {
 
     setSaving(false);
     toast.success("Payday cycle recorded! 🎊");
+    queryClient.invalidateQueries({ queryKey: ["cycles", userId] });
+    queryClient.invalidateQueries({ queryKey: ["profile", userId] });
+    queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
     setStep("result");
   };
 
@@ -118,12 +138,13 @@ function PaydayPage() {
 
     // Update allocation status
     if (cycleId) {
-      await (supabase.from("cycle_allocations" as any).update({ status: "purchased" })
-        .eq("cycle_id", cycleId).eq("wishlist_item_id", item.id) as any);
+      await supabase.from("cycle_allocations").update({ status: "purchased" })
+        .eq("cycle_id", cycleId).eq("wishlist_item_id", item.id);
     }
 
     setPurchasedIds(prev => new Set([...prev, item.id]));
     toast.success(`${item.name} marked as bought! 🎉`);
+    queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
     window.dispatchEvent(new CustomEvent("wishlist-updated"));
   };
 
