@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import { Plus, Trash2, Lock, Landmark } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { salarySchema, expenseSchema } from "@/lib/schemas";
 
 export const Route = createFileRoute("/app/expenses")({
   head: () => ({ meta: [{ title: "Expenses — Listi" }] }),
@@ -84,6 +85,14 @@ function ExpensesPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const salaryResult = salarySchema.safeParse(salary);
+      if (!salaryResult.success) throw new Error(salaryResult.error.errors[0].message);
+
+      for (const exp of expenses) {
+        const expResult = expenseSchema.safeParse(exp);
+        if (!expResult.success) throw new Error(`${exp.name || "Expense"}: ${expResult.error.errors[0].message}`);
+      }
+
       // Update salary in budget table (keeping it for now as base income source)
       const { error: bErr } = await supabase.from("budgets").upsert({ user_id: userId, salary }, { onConflict: "user_id" });
       if (bErr) throw bErr;

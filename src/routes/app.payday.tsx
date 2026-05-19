@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { salarySchema } from "@/lib/schemas";
 
 export const Route = createFileRoute("/app/payday")({
   head: () => ({ meta: [{ title: "Payday — Listi" }] }),
@@ -78,7 +79,8 @@ function PaydayPage() {
   const { picked } = suggestPurchases(items, discretionary);
 
   const startAllocation = () => {
-    if (salary <= 0) { toast.error("Please enter your salary first"); return; }
+    const result = salarySchema.safeParse(salary);
+    if (!result.success) { toast.error(result.error.errors[0].message); return; }
     setStep("reveal");
   };
 
