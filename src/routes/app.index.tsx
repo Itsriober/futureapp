@@ -20,27 +20,42 @@ function DashboardPage() {
     queries: [
       {
         queryKey: ["budget", userId],
-        queryFn: () => supabase.from("budgets").select("salary").eq("user_id", userId).maybeSingle().then(r => r.data),
+        queryFn: async () => {
+          const r = await supabase.from("budgets").select("salary").eq("user_id", userId).maybeSingle();
+          return r.data;
+        },
         enabled: !!userId,
       },
       {
         queryKey: ["expenses", userId],
-        queryFn: () => supabase.from("fixed_expenses").select("amount,is_savings").eq("user_id", userId).then(r => (r.data ?? []) as DbFixedExpense[]),
+        queryFn: async () => {
+          const r = await supabase.from("fixed_expenses").select("amount,is_savings").eq("user_id", userId);
+          return (r.data ?? []) as DbFixedExpense[];
+        },
         enabled: !!userId,
       },
       {
         queryKey: ["profile", userId],
-        queryFn: () => supabase.from("profiles").select("streak").eq("user_id", userId).maybeSingle().then(r => r.data),
+        queryFn: async () => {
+          const r = await supabase.from("profiles").select("streak").eq("user_id", userId).maybeSingle();
+          return r.data;
+        },
         enabled: !!userId,
       },
       {
         queryKey: ["wishlist", userId],
-        queryFn: () => supabase.from("wishlist_items").select("*").eq("user_id", userId).eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false }).then(r => (r.data ?? []) as DbWishlistItem[]),
+        queryFn: async () => {
+          const r = await supabase.from("wishlist_items").select("*").eq("user_id", userId).eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false });
+          return (r.data ?? []) as DbWishlistItem[];
+        },
         enabled: !!userId,
       },
       {
         queryKey: ["cycles", userId],
-        queryFn: () => supabase.from("payday_cycles").select("id").eq("user_id", userId).then(r => r.data ?? []),
+        queryFn: async () => {
+          const r = await supabase.from("payday_cycles").select("id").eq("user_id", userId);
+          return r.data ?? [];
+        },
         enabled: !!userId,
       },
     ],
