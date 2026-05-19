@@ -47,6 +47,105 @@ export type Database = {
         }
         Relationships: []
       }
+      fixed_expenses: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          amount: number
+          is_savings: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          amount: number
+          is_savings?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          amount?: number
+          is_savings?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
+      payday_cycles: {
+        Row: {
+          id: string
+          user_id: string
+          salary_amount: number
+          total_deductions: number
+          savings_amount: number
+          discretionary_balance: number
+          cycle_month: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          salary_amount: number
+          total_deductions: number
+          savings_amount: number
+          discretionary_balance: number
+          cycle_month: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          salary_amount?: number
+          total_deductions?: number
+          savings_amount?: number
+          discretionary_balance?: number
+          cycle_month?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      cycle_allocations: {
+        Row: {
+          id: string
+          cycle_id: string
+          wishlist_item_id: string
+          status: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          cycle_id: string
+          wishlist_item_id: string
+          status?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          cycle_id?: string
+          wishlist_item_id?: string
+          status?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_allocations_cycle_id_fkey"
+            columns: ["cycle_id"]
+            isOneToOne: false
+            referencedRelation: "payday_cycles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycle_allocations_wishlist_item_id_fkey"
+            columns: ["wishlist_item_id"]
+            isOneToOne: false
+            referencedRelation: "wishlist_items"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null

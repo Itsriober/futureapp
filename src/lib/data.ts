@@ -5,6 +5,9 @@ export type DbWishlistItem = Database["public"]["Tables"]["wishlist_items"]["Row
 export type DbBudget = Database["public"]["Tables"]["budgets"]["Row"];
 export type DbProfile = Database["public"]["Tables"]["profiles"]["Row"];
 export type WishlistStatus = Database["public"]["Enums"]["wishlist_status"];
+export type DbFixedExpense = Database["public"]["Tables"]["fixed_expenses"]["Row"];
+export type DbPaydayCycle = Database["public"]["Tables"]["payday_cycles"]["Row"];
+export type DbCycleAllocation = Database["public"]["Tables"]["cycle_allocations"]["Row"];
 
 export function freeMoney(b: { salary: number; rent: number; bills: number; subscriptions: number }) {
   return Math.max(0, (b.salary || 0) - (b.rent || 0) - (b.bills || 0) - (b.subscriptions || 0));
