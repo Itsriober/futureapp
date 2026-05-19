@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,10 +23,10 @@ export const Route = createFileRoute("/app/profile")({
 
 function ProfilePage() {
   const { user, signOut } = useAuth();
+  const userId = user?.id ?? "";
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
 
@@ -36,27 +37,38 @@ function ProfilePage() {
     localStorage.setItem("ff.theme", next ? "dark" : "light");
   };
 
+  const { data: profileData, isLoading: loading } = useQuery<any>({
+    queryKey: ["profile", userId],
+    queryFn: async () => {
+      const r = await supabase.from("profiles").select("*").eq("user_id", userId).maybeSingle();
+      return r.data ?? null;
+    },
+    enabled: !!userId,
+  });
+
+  // Sync local edit buffer from query data
   useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle();
-      if (data) setProfile(data);
-      setLoading(false);
-    })();
-  }, [user]);
+    if (profileData) setProfile(profileData);
+  }, [profileData]);
 
   const updateProfile = (updates: any) => {
     setProfile((p: any) => ({ ...p, ...updates }));
   };
 
-  const saveProfile = async () => {
-    if (!user) return;
-    setSaving(true);
-    const { error } = await supabase.from("profiles").update(profile).eq("user_id", user.id);
-    setSaving(false);
-    if (error) toast.error(error.message);
-    else toast.success("Profile updated");
-  };
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const r = await supabase.from("profiles").update(profile as any).eq("user_id", userId);
+      if (r.error) throw r.error;
+    },
+    onSuccess: () => {
+      toast.success("Profile updated");
+      queryClient.invalidateQueries({ queryKey: ["profile", userId] });
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const saveProfile = () => saveMutation.mutate();
+  const saving = saveMutation.isPending;
 
   const logout = async () => {
     await signOut();
