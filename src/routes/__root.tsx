@@ -1,4 +1,4 @@
-import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { Outlet, Link, createRootRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AuthProvider } from "@/lib/auth";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,8 +7,6 @@ import { Toaster } from "@/components/ui/sonner";
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 60 * 2, retry: 1 } },
 });
-
-import appCss from "../styles.css?url";
 
 function NotFoundComponent() {
   return (
@@ -33,62 +31,25 @@ function NotFoundComponent() {
 }
 
 export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "futureapp" },
-      { name: "description", content: "Capture what you want, prioritize intelligently, and let your budget guide what comes next — not impulse." },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "futureapp" },
-      { property: "og:description", content: "Capture what you want, prioritize intelligently, and let your budget guide what comes next — not impulse." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "futureapp" },
-      { name: "twitter:description", content: "Capture what you want, prioritize intelligently, and let your budget guide what comes next — not impulse." },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/NAM7EEYTdnZdBRpSTCM5w7u8nMv2/social-images/social-1777685042227-Social_Image.webp" },
-      { name: "theme-color", content: "#FF6B6B" },
-    ],
-    links: [
-      { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap",
-      },
-    ],
-  }),
-  shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
 });
 
-function RootShell({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  );
-}
-
 function RootComponent() {
   useEffect(() => {
-    if ("serviceWorker" in navigator && import.meta.env.PROD) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").then(
-          (registration) => console.log("SW registered:", registration.scope),
-          (err) => console.log("SW failed:", err)
-        );
+    if (!("serviceWorker" in navigator)) return;
+
+    if (import.meta.env.PROD) {
+      navigator.serviceWorker.register("/sw.js").then(
+        (registration) => console.log("SW registered:", registration.scope),
+        (err) => console.log("SW failed:", err)
+      );
+    } else {
+      // In dev mode, unregister any stale service worker from a previous production
+      // build. A lingering SW intercepts Vite's HMR responses, serves cached bundles
+      // instead of live source files, and causes the tab to eventually freeze.
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const reg of registrations) reg.unregister();
       });
     }
   }, []);

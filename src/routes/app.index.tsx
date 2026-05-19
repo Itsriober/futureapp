@@ -34,7 +34,7 @@ function DashboardPage() {
         supabase.from("budgets").select("salary").eq("user_id", user.id).maybeSingle(),
         (supabase.from("fixed_expenses" as any).select("amount,is_savings").eq("user_id", user.id) as any),
         supabase.from("profiles").select("streak").eq("user_id", user.id).maybeSingle(),
-        supabase.from("wishlist_items").select("*").eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false }),
+        supabase.from("wishlist_items").select("*").eq("user_id", user.id).eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false }),
         (supabase.from("payday_cycles" as any).select("id").eq("user_id", user.id) as any),
       ]);
 

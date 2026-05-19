@@ -35,7 +35,7 @@ function ItemDetailPage() {
     (async () => {
       const [{ data, error }, { data: allItems }] = await Promise.all([
         supabase.from("wishlist_items").select("*").eq("id", id).maybeSingle(),
-        supabase.from("wishlist_items").select("priority,created_at").eq("status", "active"),
+        supabase.from("wishlist_items").select("priority,created_at").eq("user_id", user.id).eq("status", "active"),
       ]);
       if (error) toast.error(error.message);
       else setItem(data);

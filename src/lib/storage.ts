@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type Category = "Tech" | "Fashion" | "Experience" | "Food" | "Home" | "Other";
 
@@ -49,19 +49,26 @@ function write<T>(key: string, value: T) {
 
 export function usePersisted<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
+  // Always tracks latest value so update() can compute next without a functional updater
+  const valueRef = useRef<T>(value);
+  valueRef.current = value;
+
   useEffect(() => { setValue(read(key, initial)); /* eslint-disable-next-line */ }, []);
   useEffect(() => {
-    const handler = () => setValue(read(key, initial));
+    // Filter by key so only the matching hook re-reads; prevents cascade re-renders
+    const handler = (e: Event) => {
+      const changedKey = (e as CustomEvent<string>).detail;
+      if (!changedKey || changedKey === key) setValue(read(key, initial));
+    };
     window.addEventListener("ff:storage", handler);
     return () => window.removeEventListener("ff:storage", handler);
     // eslint-disable-next-line
   }, [key]);
+
   const update = (v: T | ((prev: T) => T)) => {
-    setValue((prev) => {
-      const next = typeof v === "function" ? (v as (p: T) => T)(prev) : v;
-      write(key, next);
-      return next;
-    });
+    const next = typeof v === "function" ? (v as (p: T) => T)(valueRef.current) : v;
+    write(key, next);
+    setValue(next);
   };
   return [value, update] as const;
 }

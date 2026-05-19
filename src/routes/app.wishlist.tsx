@@ -21,20 +21,22 @@ function WishlistPage() {
   const [loading, setLoading] = useState(true);
   const [freeBalance, setFreeBalance] = useState(0);
 
-  const fetchItems = async () => {
-    const { data, error } = await supabase
-      .from("wishlist_items")
-      .select("*")
-      .eq("status", "active")
-      .order("priority", { ascending: false })
-      .order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
-    else setItems(data ?? []);
-    setLoading(false);
-  };
-
   useEffect(() => {
     if (!user) return;
+
+    const fetchItems = async () => {
+      const { data, error } = await supabase
+        .from("wishlist_items")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("priority", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) toast.error(error.message);
+      else setItems(data ?? []);
+      setLoading(false);
+    };
+
     fetchItems();
 
     // Fetch free balance for affordability chips

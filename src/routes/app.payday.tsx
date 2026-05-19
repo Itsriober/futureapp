@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DbWishlistItem, formatMoney, suggestPurchases } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +33,7 @@ function PaydayPage() {
       const [{ data: budget }, { data: fixed }, { data: list }] = await Promise.all([
         supabase.from("budgets").select("*").eq("user_id", user.id).maybeSingle(),
         (supabase.from("fixed_expenses" as any).select("*").eq("user_id", user.id) as any),
-        supabase.from("wishlist_items").select("*").eq("status", "active"),
+        supabase.from("wishlist_items").select("*").eq("user_id", user.id).eq("status", "active"),
       ]);
 
       if (budget) {
@@ -281,9 +281,12 @@ function PaydayPage() {
 }
 
 function AutoReveal({ onComplete }: { onComplete: () => void }) {
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+
   useEffect(() => {
-    const timer = setTimeout(onComplete, 3000);
+    const timer = setTimeout(() => onCompleteRef.current(), 3000);
     return () => clearTimeout(timer);
-  }, [onComplete]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
