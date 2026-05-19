@@ -25,13 +25,29 @@ const CATEGORY_HEX: Record<string, string> = {
   Other: "#f97316",
 };
 
+interface CycleAllocationWithItem {
+  status: string;
+  wishlist_items: { name: string; emoji: string; price: number; category: string } | null;
+}
+interface PaydayCycleWithAllocations {
+  id: string;
+  user_id: string;
+  salary_amount: number;
+  total_deductions: number;
+  savings_amount: number;
+  discretionary_balance: number;
+  cycle_month: string;
+  created_at: string;
+  cycle_allocations: CycleAllocationWithItem[];
+}
+
 function HistoryPage() {
   const { user } = useAuth();
   const userId = user?.id ?? "";
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
 
-  const { data: cycles = [], isLoading } = useQuery<any[]>({
-    queryKey: ["cycles", userId],
+  const { data: cycles = [], isLoading } = useQuery<PaydayCycleWithAllocations[]>({
+    queryKey: ["cycles-detail", userId],
     queryFn: async () => {
       const r = await supabase
         .from("payday_cycles")
@@ -39,7 +55,7 @@ function HistoryPage() {
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
       if (r.error) throw r.error;
-      return (r.data ?? []) as any[];
+      return (r.data ?? []) as unknown as PaydayCycleWithAllocations[];
     },
     enabled: !!userId,
   });

@@ -77,6 +77,7 @@ function PaydayPage() {
   const totalFixed = fixedExpenses.reduce((acc, curr) => acc + curr.amount, 0);
   const discretionary = Math.max(0, salary - totalFixed - savingsLock);
   const { picked } = suggestPurchases(items, discretionary);
+  const scoredPicked = picked as (DbWishlistItem & { score: number })[];
 
   const startAllocation = () => {
     const result = salarySchema.safeParse(salary);
@@ -129,6 +130,7 @@ function PaydayPage() {
     setSaving(false);
     toast.success("Payday cycle recorded! 🎊");
     queryClient.invalidateQueries({ queryKey: ["cycles", userId] });
+    queryClient.invalidateQueries({ queryKey: ["cycles-detail", userId] });
     queryClient.invalidateQueries({ queryKey: ["profile", userId] });
     queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
     setStep("result");
@@ -260,7 +262,7 @@ function PaydayPage() {
       <div className="space-y-4">
         <h3 className="font-display text-xl font-semibold">Buy This Month</h3>
         <div className="space-y-3">
-          {picked.map((it) => {
+          {scoredPicked.map((it) => {
             const bought = purchasedIds.has(it.id);
             return (
               <article key={it.id} className="flex items-center gap-4 rounded-3xl border border-border/60 bg-card p-5 shadow-soft animate-scale-in">
@@ -269,7 +271,7 @@ function PaydayPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="truncate font-semibold">{it.name}</h3>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
-                      {(it as any).score?.toFixed(1)}
+                      {it.score.toFixed(1)}
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground">{formatMoney(Number(it.price))} · {it.category}</p>
