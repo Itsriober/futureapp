@@ -5,10 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CATEGORIES, CATEGORY_EMOJI, Category, DbWishlistItem, formatMoney, getCountdown } from "@/lib/data";
+import type { Database } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { ChevronLeft, Star, Calendar, Info, CheckCircle2, Trash2 } from "lucide-react";
+import { ChevronLeft, Star, Calendar, Info, CheckCircle2, Trash2, Link as LinkIcon, FileText, ExternalLink, TrendingDown } from "lucide-react";
+import { LineChart, Line, Tooltip, ResponsiveContainer } from "recharts";
+import { Textarea } from "@/components/ui/textarea";
 import confetti from "canvas-confetti";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -38,6 +41,38 @@ function ItemDetailPage() {
       return (r.data ?? null) as DbWishlistItem | null;
     },
     enabled: !!id,
+  });
+
+  type PriceHistoryRow = Database["public"]["Tables"]["price_history"]["Row"];
+  const [newPrice, setNewPrice] = useState<string>("");
+
+  const { data: priceHistory = [] } = useQuery<PriceHistoryRow[]>({
+    queryKey: ["price-history", id],
+    queryFn: async () => {
+      const r = await supabase.from("price_history").select("*").eq("wishlist_item_id", id).order("recorded_at", { ascending: true });
+      return (r.data ?? []) as PriceHistoryRow[];
+    },
+    enabled: !!id,
+  });
+
+  const logPriceMutation = useMutation({
+    mutationFn: async (price: number) => {
+      // Insert into price_history and update item price
+      const [r1, r2] = await Promise.all([
+        supabase.from("price_history").insert({ wishlist_item_id: id, price }),
+        supabase.from("wishlist_items").update({ price }).eq("id", id),
+      ]);
+      if (r1.error) throw r1.error;
+      if (r2.error) throw r2.error;
+    },
+    onSuccess: (_, price) => {
+      toast.success(`Price updated to ${formatMoney(price)}`);
+      setItem({ ...localItem!, price });
+      setNewPrice("");
+      queryClient.invalidateQueries({ queryKey: ["price-history", id] });
+      queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
+    },
+    onError: (err: any) => toast.error(err.message),
   });
 
   const { data: allItems = [] } = useQuery({
@@ -72,6 +107,8 @@ function ItemDetailPage() {
         priority: item.priority,
         emoji: item.emoji,
         target_date: item.target_date,
+        url: item.url ?? null,
+        notes: item.notes ?? null,
       }).eq("id", id);
       if (r.error) throw r.error;
     },
@@ -234,6 +271,73 @@ function ItemDetailPage() {
           <div className="flex items-start gap-2 rounded-2xl bg-muted/50 p-4 text-sm text-muted-foreground italic">
             <Info className="h-4 w-4 mt-0.5 shrink-0" />
             <p>Higher priority items are allocated first. Over time, your score increases to ensure older wants aren't forgotten.</p>
+          </div>
+        </section>
+
+        <section className="space-y-4 rounded-3xl border border-border/60 bg-card p-6 shadow-soft">
+          <Label className="flex items-center gap-2"><TrendingDown className="h-4 w-4" /> Price History</Label>
+          {priceHistory.length >= 2 && (
+            <div className="-mx-2">
+              <ResponsiveContainer width="100%" height={80}>
+                <LineChart data={priceHistory.map(p => ({ price: Number(p.price), date: new Date(p.recorded_at).toLocaleDateString("en-KE", { month: "short", day: "numeric" }) }))}>
+                  <Tooltip formatter={(v: number) => formatMoney(v)} labelFormatter={(l) => l} />
+                  <Line type="monotone" dataKey="price" stroke="oklch(0.66 0.19 30)" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+              <p className="text-xs text-muted-foreground text-center mt-1">
+                {formatMoney(Math.min(...priceHistory.map(p => Number(p.price))))} → {formatMoney(Math.max(...priceHistory.map(p => Number(p.price))))}
+              </p>
+            </div>
+          )}
+          {priceHistory.length === 0 && (
+            <p className="text-xs text-muted-foreground">No price history yet. Log a price update below.</p>
+          )}
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              placeholder={`New price (current: ${formatMoney(Number(item.price))})`}
+              value={newPrice}
+              onChange={(e) => setNewPrice(e.target.value)}
+              className="h-10 rounded-xl flex-1"
+            />
+            <Button
+              size="sm"
+              disabled={!newPrice || logPriceMutation.isPending}
+              onClick={() => { const p = Number(newPrice); if (p > 0) logPriceMutation.mutate(p); }}
+              className="rounded-xl shrink-0"
+            >
+              {logPriceMutation.isPending ? "…" : "Log"}
+            </Button>
+          </div>
+        </section>
+
+        <section className="space-y-4 rounded-3xl border border-border/60 bg-card p-6 shadow-soft">
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2"><LinkIcon className="h-4 w-4" /> Buy URL (optional)</Label>
+            <div className="flex gap-2">
+              <Input
+                type="url"
+                placeholder="https://..."
+                value={item.url ?? ""}
+                onChange={(e) => setItem({ ...item, url: e.target.value || null })}
+                className="h-12 rounded-xl flex-1"
+              />
+              {item.url && (
+                <a href={item.url} target="_blank" rel="noreferrer"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border hover:bg-muted transition">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2"><FileText className="h-4 w-4" /> Notes (optional)</Label>
+            <Textarea
+              placeholder="Why do you want this? Where did you see it?"
+              value={item.notes ?? ""}
+              onChange={(e) => setItem({ ...item, notes: e.target.value || null })}
+              className="rounded-xl min-h-[80px] resize-none"
+            />
           </div>
         </section>
 

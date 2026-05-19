@@ -19,6 +19,7 @@ export type Database = {
           bills: number
           created_at: string
           id: string
+          payday_day: number | null
           rent: number
           salary: number
           subscriptions: number
@@ -29,6 +30,7 @@ export type Database = {
           bills?: number
           created_at?: string
           id?: string
+          payday_day?: number | null
           rent?: number
           salary?: number
           subscriptions?: number
@@ -39,11 +41,39 @@ export type Database = {
           bills?: number
           created_at?: string
           id?: string
+          payday_day?: number | null
           rent?: number
           salary?: number
           subscriptions?: number
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      category_budgets: {
+        Row: {
+          id: string
+          user_id: string
+          category: string
+          monthly_limit: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          category: string
+          monthly_limit?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          category?: string
+          monthly_limit?: number
+          created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -113,6 +143,7 @@ export type Database = {
           cycle_id: string
           wishlist_item_id: string
           status: string
+          satisfaction: "worth_it" | "regret" | null
           created_at: string
         }
         Insert: {
@@ -120,6 +151,7 @@ export type Database = {
           cycle_id: string
           wishlist_item_id: string
           status?: string
+          satisfaction?: "worth_it" | "regret" | null
           created_at?: string
         }
         Update: {
@@ -127,6 +159,7 @@ export type Database = {
           cycle_id?: string
           wishlist_item_id?: string
           status?: string
+          satisfaction?: "worth_it" | "regret" | null
           created_at?: string
         }
         Relationships: [
@@ -176,6 +209,35 @@ export type Database = {
         }
         Relationships: []
       }
+      price_history: {
+        Row: {
+          id: string
+          wishlist_item_id: string
+          price: number
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          wishlist_item_id: string
+          price: number
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          wishlist_item_id?: string
+          price?: number
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_history_wishlist_item_id_fkey"
+            columns: ["wishlist_item_id"]
+            isOneToOne: false
+            referencedRelation: "wishlist_items"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       wishlist_items: {
         Row: {
           category: string
@@ -183,11 +245,13 @@ export type Database = {
           emoji: string
           id: string
           name: string
+          notes: string | null
           price: number
           priority: number
           status: Database["public"]["Enums"]["wishlist_status"]
           target_date: string | null
           updated_at: string
+          url: string | null
           user_id: string
         }
         Insert: {
@@ -196,11 +260,13 @@ export type Database = {
           emoji?: string
           id?: string
           name: string
+          notes?: string | null
           price?: number
           priority?: number
           status?: Database["public"]["Enums"]["wishlist_status"]
           target_date?: string | null
           updated_at?: string
+          url?: string | null
           user_id: string
         }
         Update: {
@@ -209,11 +275,13 @@ export type Database = {
           emoji?: string
           id?: string
           name?: string
+          notes?: string | null
           price?: number
           priority?: number
           status?: Database["public"]["Enums"]["wishlist_status"]
           target_date?: string | null
           updated_at?: string
+          url?: string | null
           user_id?: string
         }
         Relationships: []

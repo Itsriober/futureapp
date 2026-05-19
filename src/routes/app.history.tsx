@@ -1,11 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatMoney, CATEGORY_COLOR, Category } from "@/lib/data";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
-import { ChevronDown, ChevronUp, Calendar, ArrowUpRight, ArrowDownRight, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Calendar, ArrowUpRight, ArrowDownRight, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -26,7 +28,9 @@ const CATEGORY_HEX: Record<string, string> = {
 };
 
 interface CycleAllocationWithItem {
+  id: string;
   status: string;
+  satisfaction: "worth_it" | "regret" | null;
   wishlist_items: { name: string; emoji: string; price: number; category: string } | null;
 }
 interface PaydayCycleWithAllocations {
@@ -46,12 +50,23 @@ function HistoryPage() {
   const userId = user?.id ?? "";
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
 
+  const queryClient = useQueryClient();
+
+  const rateMutation = useMutation({
+    mutationFn: async ({ allocationId, satisfaction }: { allocationId: string; satisfaction: "worth_it" | "regret" }) => {
+      const r = await supabase.from("cycle_allocations").update({ satisfaction }).eq("id", allocationId);
+      if (r.error) throw r.error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cycles-detail", userId] }),
+    onError: (err: any) => toast.error(err.message),
+  });
+
   const { data: cycles = [], isLoading } = useQuery<PaydayCycleWithAllocations[]>({
     queryKey: ["cycles-detail", userId],
     queryFn: async () => {
       const r = await supabase
         .from("payday_cycles")
-        .select(`*, cycle_allocations (status, wishlist_items (name, emoji, price, category))`)
+        .select(`*, cycle_allocations (id, status, satisfaction, wishlist_items (name, emoji, price, category))`)
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
       if (r.error) throw r.error;
@@ -76,6 +91,11 @@ function HistoryPage() {
     });
   });
   const pieData = Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
+
+  const allRatedAllocs = cycles.flatMap(c => (c.cycle_allocations ?? []) as CycleAllocationWithItem[]).filter(a => a.satisfaction);
+  const worthItCount = allRatedAllocs.filter(a => a.satisfaction === "worth_it").length;
+  const regretCount = allRatedAllocs.filter(a => a.satisfaction === "regret").length;
+  const satisfactionPct = allRatedAllocs.length > 0 ? Math.round((worthItCount / allRatedAllocs.length) * 100) : null;
 
   if (isLoading) return (
     <div className="space-y-8 pb-10">
@@ -118,6 +138,24 @@ function HistoryPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Satisfaction Insight */}
+              {satisfactionPct !== null && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Purchase Satisfaction</h3>
+                  <div className="flex items-center gap-4">
+                    <div className="text-4xl font-display font-bold">{satisfactionPct}%</div>
+                    <div className="flex-1">
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${satisfactionPct}%` }} />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        👍 {worthItCount} worth it · 👎 {regretCount} regret · {allRatedAllocs.length} rated total
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Category Donut */}
               {pieData.length > 0 && (
@@ -195,12 +233,38 @@ function HistoryPage() {
                     {purchasedCount} / {allocatedCount} Purchased
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {cycle.cycle_allocations?.map((alloc: any, i: number) => (
-                    <div key={i} className="flex items-center gap-2 bg-accent/50 px-3 py-1.5 rounded-xl text-sm">
+                <div className="space-y-2">
+                  {cycle.cycle_allocations?.map((alloc: CycleAllocationWithItem, i: number) => (
+                    <div key={alloc.id ?? i} className="flex items-center gap-2 bg-accent/50 px-3 py-2 rounded-xl text-sm">
                       <span>{alloc.wishlist_items?.emoji}</span>
-                      <span className="truncate max-w-[120px] font-medium">{alloc.wishlist_items?.name}</span>
-                      {alloc.status === "purchased" && <span className="text-green-500 font-bold">✓</span>}
+                      <span className="truncate flex-1 font-medium">{alloc.wishlist_items?.name}</span>
+                      {alloc.status === "purchased" && <span className="text-green-500 font-bold text-xs">✓</span>}
+                      {alloc.status === "purchased" && (
+                        alloc.satisfaction ? (
+                          <span className={cn("text-xs rounded-full px-2 py-0.5 font-medium",
+                            alloc.satisfaction === "worth_it" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"
+                          )}>
+                            {alloc.satisfaction === "worth_it" ? "👍 Worth it" : "👎 Regret"}
+                          </span>
+                        ) : (
+                          <div className="flex gap-1 shrink-0">
+                            <button
+                              onClick={() => rateMutation.mutate({ allocationId: alloc.id, satisfaction: "worth_it" })}
+                              className="p-1.5 rounded-lg hover:bg-green-100 text-muted-foreground hover:text-green-700 transition"
+                              title="Worth it"
+                            >
+                              <ThumbsUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => rateMutation.mutate({ allocationId: alloc.id, satisfaction: "regret" })}
+                              className="p-1.5 rounded-lg hover:bg-red-100 text-muted-foreground hover:text-red-600 transition"
+                              title="Regret"
+                            >
+                              <ThumbsDown className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )
+                      )}
                     </div>
                   ))}
                   {allocatedCount === 0 && (

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { DbWishlistItem, DbBudget, DbFixedExpense, formatMoney, suggestPurchases } from "@/lib/data";
+import { DbWishlistItem, DbBudget, DbFixedExpense, DbCategoryBudget, formatMoney, suggestPurchases } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +45,15 @@ function PaydayPage() {
     enabled: !!userId,
   });
 
+  const { data: categoryBudgets = [] } = useQuery<DbCategoryBudget[]>({
+    queryKey: ["category-budgets", userId],
+    queryFn: async () => {
+      const r = await supabase.from("category_budgets").select("*").eq("user_id", userId);
+      return (r.data ?? []) as DbCategoryBudget[];
+    },
+    enabled: !!userId,
+  });
+
   const { data: items = [], isLoading: loadingItems } = useQuery<DbWishlistItem[]>({
     queryKey: ["wishlist", userId],
     queryFn: async () => {
@@ -76,7 +85,8 @@ function PaydayPage() {
 
   const totalFixed = fixedExpenses.reduce((acc, curr) => acc + curr.amount, 0);
   const discretionary = Math.max(0, salary - totalFixed - savingsLock);
-  const { picked } = suggestPurchases(items, discretionary);
+  const categoryLimits = Object.fromEntries(categoryBudgets.map(cb => [cb.category, Number(cb.monthly_limit)]));
+  const { picked } = suggestPurchases(items, discretionary, undefined, categoryLimits);
   const scoredPicked = picked as (DbWishlistItem & { score: number })[];
 
   const startAllocation = () => {

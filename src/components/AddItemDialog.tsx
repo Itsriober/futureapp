@@ -6,26 +6,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CATEGORIES, CATEGORY_EMOJI, Category } from "@/lib/data";
+import { CATEGORIES, CATEGORY_EMOJI, Category, getCountdown } from "@/lib/data";
 import { newItemSchema } from "@/lib/schemas";
-import { Plus } from "lucide-react";
+import { Plus, Calendar } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export interface NewItemInput {
   name: string;
   price: number;
   category: Category;
   priority: number;
+  target_date?: string | null;
 }
 
-type FormValues = z.infer<typeof newItemSchema>;
+type FormValues = z.infer<typeof newItemSchema> & { target_date?: string | null };
 
 export function AddItemDialog({ onAdd, fab }: { onAdd: (input: NewItemInput) => Promise<void> | void; fab?: boolean }) {
   const [open, setOpen] = useState(false);
 
-  const { register, handleSubmit, control, reset, formState: { errors } } = useForm<FormValues>({
+  const { register, handleSubmit, control, reset, watch, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(newItemSchema),
-    defaultValues: { name: "", price: 0, category: "Tech", priority: 3 },
+    defaultValues: { name: "", price: 0, category: "Tech", priority: 3, target_date: null },
   });
+  const targetDateVal = watch("target_date");
 
   const submit = async (values: FormValues) => {
     await onAdd({
@@ -33,6 +36,7 @@ export function AddItemDialog({ onAdd, fab }: { onAdd: (input: NewItemInput) => 
       price: values.price,
       category: values.category as Category,
       priority: values.priority,
+      target_date: values.target_date || null,
     });
     reset();
     setOpen(false);
@@ -112,6 +116,24 @@ export function AddItemDialog({ onAdd, fab }: { onAdd: (input: NewItemInput) => 
                 </div>
               )}
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5"><Calendar className="h-3 w-3" /> I want this by (optional)</Label>
+            <input
+              type="date"
+              {...register("target_date")}
+              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring h-10"
+            />
+            {targetDateVal && (() => {
+              const cd = getCountdown(targetDateVal);
+              return cd ? (
+                <p className={cn("text-xs font-medium",
+                  cd.variant === "overdue" && "text-red-500",
+                  cd.variant === "warning" && "text-amber-500",
+                  cd.variant === "normal" && "text-muted-foreground",
+                )}>{cd.label}</p>
+              ) : null;
+            })()}
           </div>
           <Button type="submit" className="w-full" size="lg">Add to wishlist</Button>
         </form>

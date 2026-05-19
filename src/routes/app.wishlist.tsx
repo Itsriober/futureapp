@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CATEGORIES, CATEGORY_EMOJI, CATEGORY_COLOR, Category, DbWishlistItem, DbFixedExpense } from "@/lib/data";
+import { CATEGORIES, CATEGORY_EMOJI, CATEGORY_COLOR, Category, DbWishlistItem, DbFixedExpense, calcScore, getScoreWeights } from "@/lib/data";
 import { WishlistCard } from "@/components/WishlistCard";
 import { AddItemDialog, NewItemInput } from "@/components/AddItemDialog";
+import { ScoreTuner } from "@/components/ScoreTuner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -20,6 +21,7 @@ function WishlistPage() {
   const userId = user?.id ?? "";
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<Category | "All">("All");
+  const [scoreWeights, setScoreWeightsState] = useState(getScoreWeights);
 
   const { data: items = [], isLoading: loadingItems } = useQuery<DbWishlistItem[]>({
     queryKey: ["wishlist", userId],
@@ -72,6 +74,7 @@ function WishlistPage() {
         category: input.category,
         priority: input.priority,
         emoji: CATEGORY_EMOJI[input.category],
+        target_date: input.target_date ?? null,
       }).select().single();
       if (r.error) throw r.error;
       return r.data as DbWishlistItem;
@@ -126,10 +129,10 @@ function WishlistPage() {
     priorityMutation.mutate({ id, next });
   };
 
-  const visible = useMemo(
-    () => (filter === "All" ? items : items.filter(i => i.category === filter)),
-    [items, filter]
-  );
+  const visible = useMemo(() => {
+    const filtered = filter === "All" ? items : items.filter(i => i.category === filter);
+    return [...filtered].sort((a, b) => calcScore(b, scoreWeights) - calcScore(a, scoreWeights));
+  }, [items, filter, scoreWeights]);
 
   return (
     <div className="animate-fade-in">
@@ -141,7 +144,11 @@ function WishlistPage() {
         <AddItemDialog onAdd={async (input) => { await addMutation.mutateAsync(input); }} />
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
+      <div className="mt-4">
+        <ScoreTuner onChange={setScoreWeightsState} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
         {(["All", ...CATEGORIES] as const).map((c) => {
           const colorClass = c !== "All" ? CATEGORY_COLOR[c as Category] : "";
           return (

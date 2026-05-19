@@ -2,9 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueries } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
-import { formatMoney, DbWishlistItem, DbFixedExpense, getCountdown } from "@/lib/data";
+import { formatMoney, DbWishlistItem, DbFixedExpense, DbBudget, getCountdown } from "@/lib/data";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles } from "lucide-react";
+import { Sparkles, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/")({
@@ -21,7 +21,7 @@ function DashboardPage() {
       {
         queryKey: ["budget", userId],
         queryFn: async () => {
-          const r = await supabase.from("budgets").select("salary").eq("user_id", userId).maybeSingle();
+          const r = await supabase.from("budgets").select("*").eq("user_id", userId).maybeSingle();
           return r.data;
         },
         enabled: !!userId,
@@ -65,7 +65,7 @@ function DashboardPage() {
   if (loading) return <DashboardSkeleton />;
 
   const [budgetQ, expensesQ, profileQ, wishlistQ, cyclesQ] = results;
-  const budget = budgetQ.data as { salary: number } | null | undefined;
+  const budget = budgetQ.data as DbBudget | null | undefined;
   const exps = (expensesQ.data ?? []) as DbFixedExpense[];
   const profileData = profileQ.data as { streak: number } | null | undefined;
   const items = (wishlistQ.data ?? []) as DbWishlistItem[];
@@ -85,6 +85,17 @@ function DashboardPage() {
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
+
+  const paydayCountdown = (() => {
+    const day = budget?.payday_day;
+    if (!day) return null;
+    const now = new Date();
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), day);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, day);
+    const target = thisMonth > now ? thisMonth : nextMonth;
+    const diff = Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return diff;
+  })();
 
   const estimatedSavings = totalSavings * cyclesCount;
   const nextMilestone = Math.max(10000, Math.ceil(estimatedSavings / 10000) * 10000);
@@ -196,6 +207,39 @@ function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Payday Countdown */}
+      {paydayCountdown !== null && (
+        <div className={cn(
+          "flex items-center gap-3 rounded-2xl border p-4 shadow-soft",
+          paydayCountdown === 0
+            ? "border-green-500/30 bg-green-50 dark:bg-green-950/20"
+            : paydayCountdown <= 3
+            ? "border-amber-500/30 bg-amber-50 dark:bg-amber-950/20"
+            : "border-border bg-card"
+        )}>
+          <CalendarClock className={cn("h-6 w-6 shrink-0",
+            paydayCountdown === 0 ? "text-green-600" : paydayCountdown <= 3 ? "text-amber-600" : "text-muted-foreground"
+          )} />
+          <div>
+            {paydayCountdown === 0 ? (
+              <p className="font-semibold text-green-700 dark:text-green-400">Payday is today! 🎉</p>
+            ) : (
+              <p className="font-semibold">
+                Payday in <span className={cn(paydayCountdown <= 3 ? "text-amber-600" : "text-primary")}>{paydayCountdown} {paydayCountdown === 1 ? "day" : "days"}</span>
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {paydayCountdown === 0 ? "Run Payday to allocate your balance." : "Get your wishlist ready."}
+            </p>
+          </div>
+          {paydayCountdown === 0 && (
+            <Link to="/app/payday" className="ml-auto rounded-full bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 transition">
+              Run →
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* Zone 4 — Quick Actions */}
       <div className="flex gap-3">

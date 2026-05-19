@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
 export type DbWishlistItem = Database["public"]["Tables"]["wishlist_items"]["Row"];
+export type DbCategoryBudget = Database["public"]["Tables"]["category_budgets"]["Row"];
 export type DbBudget = Database["public"]["Tables"]["budgets"]["Row"];
 export type DbProfile = Database["public"]["Tables"]["profiles"]["Row"];
 export type WishlistStatus = Database["public"]["Enums"]["wishlist_status"];
@@ -13,26 +14,51 @@ export function freeMoney(b: { salary: number; rent: number; bills: number; subs
   return Math.max(0, (b.salary || 0) - (b.rent || 0) - (b.bills || 0) - (b.subscriptions || 0));
 }
 
-export function suggestPurchases(items: DbWishlistItem[], budget: number) {
+export const DEFAULT_SCORE_WEIGHTS = { priorityWeight: 2, ageWeight: 0.5 };
+
+export function getScoreWeights(): { priorityWeight: number; ageWeight: number } {
+  try {
+    const stored = localStorage.getItem("listi.scoreWeights");
+    if (stored) return { ...DEFAULT_SCORE_WEIGHTS, ...JSON.parse(stored) };
+  } catch {}
+  return DEFAULT_SCORE_WEIGHTS;
+}
+
+export function setScoreWeights(w: { priorityWeight: number; ageWeight: number }) {
+  localStorage.setItem("listi.scoreWeights", JSON.stringify(w));
+}
+
+export function calcScore(item: DbWishlistItem, weights = DEFAULT_SCORE_WEIGHTS) {
+  const priority = item.priority || 1;
+  const weeksOnList = Math.max(0, (Date.now() - new Date(item.created_at).getTime()) / (1000 * 60 * 60 * 24 * 7));
+  return (priority * weights.priorityWeight) + (weeksOnList * weights.ageWeight);
+}
+
+export function suggestPurchases(
+  items: DbWishlistItem[],
+  budget: number,
+  weights = DEFAULT_SCORE_WEIGHTS,
+  categoryLimits: Record<string, number> = {}
+) {
   const active = items.filter((i) => i.status === "active");
-
-  const scored = active.map((it) => {
-    const priority = it.priority || 1;
-    const createdAt = new Date(it.created_at).getTime();
-    const weeksOnList = Math.max(0, (Date.now() - createdAt) / (1000 * 60 * 60 * 24 * 7));
-    const score = (priority * 2) + (weeksOnList * 0.5);
-    return { ...it, score };
-  });
-
+  const scored = active.map((it) => ({ ...it, score: calcScore(it, weights) }));
   const sorted = scored.sort((a, b) => b.score - a.score || Number(a.price) - Number(b.price));
 
   const picked: DbWishlistItem[] = [];
   let remaining = budget;
+  const categorySpent: Record<string, number> = {};
+
   for (const it of sorted) {
     const p = Number(it.price);
+    const cat = it.category;
+    const limit = categoryLimits[cat];
+    const spent = categorySpent[cat] ?? 0;
+
+    if (limit !== undefined && spent + p > limit) continue;
     if (p <= remaining) {
       picked.push(it);
       remaining -= p;
+      categorySpent[cat] = spent + p;
     }
   }
   return { picked, remaining };

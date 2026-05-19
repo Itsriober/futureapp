@@ -10,7 +10,8 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { getZodiacSign, MBTI_TYPES, HOBBIES } from "@/lib/data";
 import { toast } from "sonner";
-import { LogOut, MapPin, Sparkles, User as UserIcon, Palette, Music, Utensils, Heart, History, Camera, Dices, Upload, Sun, Moon } from "lucide-react";
+import { LogOut, MapPin, Sparkles, User as UserIcon, Palette, Music, Utensils, Heart, History, Camera, Dices, Upload, Sun, Moon, Download } from "lucide-react";
+import { exportListi } from "@/lib/export";
 import { Link } from "@tanstack/react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -23,6 +24,20 @@ export const Route = createFileRoute("/app/profile")({
 
 function ProfilePage() {
   const { user, signOut } = useAuth();
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    if (!userId) return;
+    setExporting(true);
+    try {
+      await exportListi(userId);
+      toast.success("Export downloaded!");
+    } catch {
+      toast.error("Export failed. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
   const userId = user?.id ?? "";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -274,6 +289,9 @@ function ProfilePage() {
               <History className="h-5 w-5" /> View Past Cycles
             </Button>
           </Link>
+          <Button variant="outline" onClick={handleExport} disabled={exporting} className="w-full h-14 rounded-full text-lg gap-2">
+            <Download className="h-5 w-5" /> {exporting ? "Exporting…" : "Export Data"}
+          </Button>
           <div className="flex gap-3">
             <Button onClick={saveProfile} disabled={saving} className="flex-1 h-14 rounded-full text-lg shadow-pop">
               {saving ? "Saving…" : "Save Changes"}

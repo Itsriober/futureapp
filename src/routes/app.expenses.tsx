@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { DbBudget, DbFixedExpense } from "@/lib/data";
+import type { DbBudget, DbFixedExpense, DbCategoryBudget } from "@/lib/data";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { formatMoney } from "@/lib/data";
+import { formatMoney, CATEGORIES, CATEGORY_EMOJI, Category } from "@/lib/data";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Plus, Trash2, Lock, Landmark } from "lucide-react";
+import { Plus, Trash2, Lock, Landmark, CalendarClock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { salarySchema, expenseSchema } from "@/lib/schemas";
 
@@ -30,7 +30,9 @@ function ExpensesPage() {
   const userId = user?.id ?? "";
   const queryClient = useQueryClient();
   const [salary, setSalary] = useState(0);
+  const [paydayDay, setPaydayDay] = useState<number | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [categoryLimits, setCategoryLimits] = useState<Record<string, number>>({});
 
   const { data: budgetData, isLoading: loadingBudget } = useQuery<DbBudget | null>({
     queryKey: ["budget", userId],
@@ -40,6 +42,23 @@ function ExpensesPage() {
     },
     enabled: !!userId,
   });
+
+  const { data: categoryBudgetsData } = useQuery<DbCategoryBudget[]>({
+    queryKey: ["category-budgets", userId],
+    queryFn: async () => {
+      const r = await supabase.from("category_budgets").select("*").eq("user_id", userId);
+      return (r.data ?? []) as DbCategoryBudget[];
+    },
+    enabled: !!userId,
+  });
+
+  useEffect(() => {
+    if (categoryBudgetsData) {
+      const map: Record<string, number> = {};
+      categoryBudgetsData.forEach(cb => { map[cb.category] = Number(cb.monthly_limit); });
+      setCategoryLimits(map);
+    }
+  }, [categoryBudgetsData]);
 
   const { data: expensesData, isLoading: loadingExpenses } = useQuery<DbFixedExpense[]>({
     queryKey: ["expenses", userId],
@@ -54,7 +73,10 @@ function ExpensesPage() {
 
   // Sync local edit buffer from query data
   useEffect(() => {
-    if (budgetData) setSalary(Number(budgetData.salary));
+    if (budgetData) {
+      setSalary(Number(budgetData.salary));
+      setPaydayDay(budgetData.payday_day ?? null);
+    }
   }, [budgetData]);
 
   useEffect(() => {
@@ -94,7 +116,7 @@ function ExpensesPage() {
       }
 
       // Update salary in budget table (keeping it for now as base income source)
-      const { error: bErr } = await supabase.from("budgets").upsert({ user_id: userId, salary }, { onConflict: "user_id" });
+      const { error: bErr } = await supabase.from("budgets").upsert({ user_id: userId, salary, payday_day: paydayDay }, { onConflict: "user_id" });
       if (bErr) throw bErr;
 
       // Update fixed expenses
@@ -107,11 +129,26 @@ function ExpensesPage() {
         );
         if (iErr) throw iErr;
       }
+
+      // Save category budgets (upsert each category that has a limit > 0, delete zeros)
+      const nonZero = Object.entries(categoryLimits).filter(([, v]) => v > 0);
+      const zero = Object.entries(categoryLimits).filter(([, v]) => v === 0).map(([k]) => k);
+      if (nonZero.length > 0) {
+        const { error: cbErr } = await supabase.from("category_budgets").upsert(
+          nonZero.map(([category, monthly_limit]) => ({ user_id: userId, category, monthly_limit })),
+          { onConflict: "user_id,category" }
+        );
+        if (cbErr) throw cbErr;
+      }
+      if (zero.length > 0) {
+        await supabase.from("category_budgets").delete().eq("user_id", userId).in("category", zero);
+      }
     },
     onSuccess: () => {
       toast.success("Expenses updated");
       queryClient.invalidateQueries({ queryKey: ["budget", userId] });
       queryClient.invalidateQueries({ queryKey: ["expenses", userId] });
+      queryClient.invalidateQueries({ queryKey: ["category-budgets", userId] });
     },
     onError: (err: any) => toast.error(err.message),
   });
@@ -162,14 +199,33 @@ function ExpensesPage() {
           <Label className="text-lg font-display">Monthly Take-home Pay</Label>
           <div className="relative">
             <Landmark className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input 
-              type="number" 
-              value={salary || ""} 
+            <Input
+              type="number"
+              value={salary || ""}
               onChange={(e) => setSalary(Number(e.target.value) || 0)}
               className="h-14 pl-12 rounded-2xl text-xl font-medium bg-card shadow-soft"
               placeholder="0"
             />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-lg font-display flex items-center gap-2">
+            <CalendarClock className="h-5 w-5" /> Payday Date
+          </Label>
+          <p className="text-sm text-muted-foreground">Day of the month your salary arrives (e.g. 1, 25).</p>
+          <Input
+            type="number"
+            min={1}
+            max={31}
+            value={paydayDay ?? ""}
+            onChange={(e) => {
+              const v = parseInt(e.target.value);
+              setPaydayDay(isNaN(v) ? null : Math.min(31, Math.max(1, v)));
+            }}
+            className="h-14 rounded-2xl text-xl font-medium bg-card shadow-soft w-32"
+            placeholder="—"
+          />
         </div>
 
         <div className="space-y-4">
@@ -219,6 +275,34 @@ function ExpensesPage() {
                 No recurring expenses added yet.
               </div>
             )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <h3 className="font-display text-xl font-semibold">Category Budgets</h3>
+            <p className="text-sm text-muted-foreground mt-1">Set monthly spend limits per category. Leave blank for no limit.</p>
+          </div>
+          <div className="space-y-3">
+            {CATEGORIES.map((cat) => (
+              <div key={cat} className="flex items-center gap-3">
+                <span className="text-xl w-8 text-center">{CATEGORY_EMOJI[cat as Category]}</span>
+                <span className="flex-1 text-sm font-medium">{cat}</span>
+                <div className="w-36">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={categoryLimits[cat] || ""}
+                    onChange={(e) => {
+                      const v = Number(e.target.value) || 0;
+                      setCategoryLimits(prev => ({ ...prev, [cat]: v }));
+                    }}
+                    placeholder="No limit"
+                    className="rounded-xl bg-card text-right font-medium"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
