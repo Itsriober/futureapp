@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { formatMoney, CATEGORY_COLOR, Category } from "@/lib/data";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -26,23 +27,22 @@ const CATEGORY_HEX: Record<string, string> = {
 
 function HistoryPage() {
   const { user } = useAuth();
-  const [cycles, setCycles] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const userId = user?.id ?? "";
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
 
-  useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const { data, error } = await (supabase
-        .from("payday_cycles" as any)
+  const { data: cycles = [], isLoading } = useQuery<any[]>({
+    queryKey: ["cycles", userId],
+    queryFn: async () => {
+      const r = await supabase
+        .from("payday_cycles")
         .select(`*, cycle_allocations (status, wishlist_items (name, emoji, price, category))`)
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false }) as any);
-      if (error) console.error(error);
-      else setCycles(data || []);
-      setLoading(false);
-    })();
-  }, [user]);
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      if (r.error) throw r.error;
+      return (r.data ?? []) as any[];
+    },
+    enabled: !!userId,
+  });
 
   // Compute analytics from cycles data
   const barData = [...cycles].reverse().map((cycle) => {
@@ -61,7 +61,7 @@ function HistoryPage() {
   });
   const pieData = Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
 
-  if (loading) return (
+  if (isLoading) return (
     <div className="space-y-8 pb-10">
       <Skeleton className="h-16 w-48" />
       <Skeleton className="h-48 w-full rounded-[2rem]" />
