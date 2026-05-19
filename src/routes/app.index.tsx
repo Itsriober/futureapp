@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
-import { formatMoney, DbWishlistItem, getCountdown } from "@/lib/data";
+import { formatMoney, DbWishlistItem, DbFixedExpense, getCountdown } from "@/lib/data";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -12,56 +12,57 @@ export const Route = createFileRoute("/app/")({
   component: DashboardPage,
 });
 
-interface DashboardData {
-  salary: number;
-  totalFixed: number;
-  totalSavings: number;
-  freeBalance: number;
-  streak: number;
-  cyclesCount: number;
-  items: DbWishlistItem[];
-}
-
 function DashboardPage() {
   const { user } = useAuth();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const userId = user?.id ?? "";
 
-  useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const [{ data: budget }, { data: exps }, { data: profileData }, { data: wishlistData }, { data: cyclesData }] = await Promise.all([
-        supabase.from("budgets").select("salary").eq("user_id", user.id).maybeSingle(),
-        (supabase.from("fixed_expenses" as any).select("amount,is_savings").eq("user_id", user.id) as any),
-        supabase.from("profiles").select("streak").eq("user_id", user.id).maybeSingle(),
-        supabase.from("wishlist_items").select("*").eq("user_id", user.id).eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false }),
-        (supabase.from("payday_cycles" as any).select("id").eq("user_id", user.id) as any),
-      ]);
+  const results = useQueries({
+    queries: [
+      {
+        queryKey: ["budget", userId],
+        queryFn: () => supabase.from("budgets").select("salary").eq("user_id", userId).maybeSingle().then(r => r.data),
+        enabled: !!userId,
+      },
+      {
+        queryKey: ["expenses", userId],
+        queryFn: () => supabase.from("fixed_expenses").select("amount,is_savings").eq("user_id", userId).then(r => (r.data ?? []) as DbFixedExpense[]),
+        enabled: !!userId,
+      },
+      {
+        queryKey: ["profile", userId],
+        queryFn: () => supabase.from("profiles").select("streak").eq("user_id", userId).maybeSingle().then(r => r.data),
+        enabled: !!userId,
+      },
+      {
+        queryKey: ["wishlist", userId],
+        queryFn: () => supabase.from("wishlist_items").select("*").eq("user_id", userId).eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false }).then(r => (r.data ?? []) as DbWishlistItem[]),
+        enabled: !!userId,
+      },
+      {
+        queryKey: ["cycles", userId],
+        queryFn: () => supabase.from("payday_cycles").select("id").eq("user_id", userId).then(r => r.data ?? []),
+        enabled: !!userId,
+      },
+    ],
+  });
 
-      const salary = Number(budget?.salary ?? 0);
-      const totalFixed = (exps ?? []).filter((e: any) => !e.is_savings).reduce((acc: number, e: any) => acc + Number(e.amount), 0);
-      const totalSavings = (exps ?? []).filter((e: any) => e.is_savings).reduce((acc: number, e: any) => acc + Number(e.amount), 0);
-      const freeBalance = Math.max(0, salary - totalFixed - totalSavings);
-
-      setData({
-        salary,
-        totalFixed,
-        totalSavings,
-        freeBalance,
-        streak: Number(profileData?.streak ?? 0),
-        cyclesCount: (cyclesData ?? []).length,
-        items: (wishlistData ?? []) as DbWishlistItem[],
-      });
-      setLoading(false);
-    })();
-  }, [user]);
-
+  const loading = results.some(r => r.isLoading);
   if (loading) return <DashboardSkeleton />;
-  if (!data) return null;
 
-  const { salary, totalFixed, totalSavings, freeBalance, streak, cyclesCount, items } = data;
+  const [budgetQ, expensesQ, profileQ, wishlistQ, cyclesQ] = results;
+  const budget = budgetQ.data as { salary: number } | null | undefined;
+  const exps = (expensesQ.data ?? []) as DbFixedExpense[];
+  const profileData = profileQ.data as { streak: number } | null | undefined;
+  const items = (wishlistQ.data ?? []) as DbWishlistItem[];
+  const cyclesData = (cyclesQ.data ?? []) as { id: string }[];
 
-  // Top picks: score = priority×2 + weeks×0.5, top 3
+  const salary = Number(budget?.salary ?? 0);
+  const totalFixed = exps.filter(e => !e.is_savings).reduce((acc, e) => acc + Number(e.amount), 0);
+  const totalSavings = exps.filter(e => e.is_savings).reduce((acc, e) => acc + Number(e.amount), 0);
+  const freeBalance = Math.max(0, salary - totalFixed - totalSavings);
+  const streak = Number(profileData?.streak ?? 0);
+  const cyclesCount = cyclesData.length;
+
   const topPicks = items
     .map((it) => {
       const weeks = Math.max(0, (Date.now() - new Date(it.created_at).getTime()) / (1000 * 60 * 60 * 24 * 7));
@@ -70,11 +71,9 @@ function DashboardPage() {
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
-  // Savings progress
   const estimatedSavings = totalSavings * cyclesCount;
   const nextMilestone = Math.max(10000, Math.ceil(estimatedSavings / 10000) * 10000);
   const savingsProgress = estimatedSavings > 0 ? Math.min(100, (estimatedSavings / nextMilestone) * 100) : 0;
-
   const commitmentPct = salary > 0 ? Math.min(100, Math.round(((totalFixed + totalSavings) / salary) * 100)) : 0;
 
   return (
@@ -151,7 +150,6 @@ function DashboardPage() {
 
       {/* Zone 3 — Stats Row */}
       <div className="grid grid-cols-2 gap-3">
-        {/* Streak */}
         <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-soft">
           {streak > 0 ? (
             <>
@@ -168,7 +166,6 @@ function DashboardPage() {
             </>
           )}
         </div>
-        {/* Savings progress */}
         <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-soft">
           {totalSavings > 0 ? (
             <>
