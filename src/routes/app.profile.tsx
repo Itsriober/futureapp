@@ -57,7 +57,22 @@ function ProfilePage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const r = await supabase.from("profiles").update(profile as any).eq("user_id", userId);
+      let profileToSave = { ...profile };
+
+      if (profile?.avatar_url?.startsWith("data:")) {
+        const res = await fetch(profile.avatar_url);
+        const blob = await res.blob();
+        const ext = blob.type.split("/")[1] ?? "jpg";
+        const path = `${userId}/${Date.now()}.${ext}`;
+        const { error: uploadErr } = await supabase.storage.from("avatars").upload(path, blob, { upsert: true, contentType: blob.type });
+        if (!uploadErr) {
+          const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+          profileToSave = { ...profileToSave, avatar_url: publicUrl };
+          setProfile(profileToSave);
+        }
+      }
+
+      const r = await supabase.from("profiles").update(profileToSave as any).eq("user_id", userId);
       if (r.error) throw r.error;
     },
     onSuccess: () => {
@@ -86,42 +101,23 @@ function ProfilePage() {
     setAvatarDialogOpen(false);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        const MAX_WIDTH = 256;
-        const MAX_HEIGHT = 256;
-        let width = img.width;
-        let height = img.height;
+    const ext = file.name.split(".").pop() ?? "jpg";
+    const path = `${user.id}/${Date.now()}.${ext}`;
 
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-        updateProfile({ avatar_url: dataUrl });
-        setAvatarDialogOpen(false);
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+    const { error: uploadErr } = await supabase.storage.from("avatars").upload(path, file, {
+      upsert: true,
+      contentType: file.type,
+    });
+
+    if (uploadErr) { toast.error(uploadErr.message); return; }
+
+    const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+    updateProfile({ avatar_url: publicUrl });
+    setAvatarDialogOpen(false);
   };
 
   return (
