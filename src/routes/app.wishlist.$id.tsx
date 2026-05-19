@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,74 +25,102 @@ export const Route = createFileRoute("/app/wishlist/$id")({
 function ItemDetailPage() {
   const { id } = Route.useParams();
   const { user } = useAuth();
+  const userId = user?.id ?? "";
   const navigate = useNavigate();
-  const [item, setItem] = useState<DbWishlistItem | null>(null);
-  const [maxScore, setMaxScore] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const queryClient = useQueryClient();
+  const [localItem, setLocalItem] = useState<DbWishlistItem | null>(null);
 
+  const { data: fetchedItem, isLoading } = useQuery<DbWishlistItem | null>({
+    queryKey: ["wishlist-item", id],
+    queryFn: async () => {
+      const r = await supabase.from("wishlist_items").select("*").eq("id", id).maybeSingle();
+      if (r.error) throw r.error;
+      return (r.data ?? null) as DbWishlistItem | null;
+    },
+    enabled: !!id,
+  });
+
+  const { data: allItems = [] } = useQuery({
+    queryKey: ["wishlist", userId],
+    queryFn: async () => {
+      const r = await supabase.from("wishlist_items").select("*").eq("user_id", userId).eq("status", "active").order("priority", { ascending: false }).order("created_at", { ascending: false });
+      return (r.data ?? []) as DbWishlistItem[];
+    },
+    enabled: !!userId,
+  });
+
+  // Sync local edit buffer from query result
   useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const [{ data, error }, { data: allItems }] = await Promise.all([
-        supabase.from("wishlist_items").select("*").eq("id", id).maybeSingle(),
-        supabase.from("wishlist_items").select("priority,created_at").eq("user_id", user.id).eq("status", "active"),
-      ]);
-      if (error) toast.error(error.message);
-      else setItem(data);
+    if (fetchedItem) setLocalItem(fetchedItem);
+  }, [fetchedItem]);
 
-      if (allItems) {
-        const max = allItems.reduce((acc, it) => {
-          const weeks = Math.max(0, (Date.now() - new Date(it.created_at).getTime()) / (1000 * 60 * 60 * 24 * 7));
-          return Math.max(acc, (it.priority * 2) + (weeks * 0.5));
-        }, 0);
-        setMaxScore(max);
-      }
-      setLoading(false);
-    })();
-  }, [user, id]);
+  const item = localItem;
+  const setItem = setLocalItem as (i: DbWishlistItem) => void;
 
-  const save = async () => {
-    if (!item) return;
-    setSaving(true);
-    const { error } = await supabase.from("wishlist_items").update({
-      name: item.name,
-      price: item.price,
-      category: item.category,
-      priority: item.priority,
-      emoji: item.emoji,
-      target_date: item.target_date,
-    }).eq("id", id);
-    setSaving(false);
-    if (error) toast.error(error.message);
-    else {
+  const maxScore = allItems.reduce((acc, it) => {
+    const weeks = Math.max(0, (Date.now() - new Date(it.created_at).getTime()) / (1000 * 60 * 60 * 24 * 7));
+    return Math.max(acc, (it.priority * 2) + (weeks * 0.5));
+  }, 0);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!item) return;
+      const r = await supabase.from("wishlist_items").update({
+        name: item.name,
+        price: item.price,
+        category: item.category,
+        priority: item.priority,
+        emoji: item.emoji,
+        target_date: item.target_date,
+      }).eq("id", id);
+      if (r.error) throw r.error;
+    },
+    onSuccess: () => {
       toast.success("Saved");
+      queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
+      queryClient.invalidateQueries({ queryKey: ["wishlist-item", id] });
       window.dispatchEvent(new CustomEvent("wishlist-updated"));
-    }
-  };
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
 
-  const deleteItem = async () => {
-    const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
-    if (error) toast.error(error.message);
-    else {
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const r = await supabase.from("wishlist_items").delete().eq("id", id);
+      if (r.error) throw r.error;
+    },
+    onSuccess: () => {
       toast.success("Removed");
+      queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
+      queryClient.invalidateQueries({ queryKey: ["wishlist-item", id] });
       window.dispatchEvent(new CustomEvent("wishlist-updated"));
       navigate({ to: "/app/wishlist" });
-    }
-  };
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
 
-  const markPurchased = async () => {
-    const { error } = await supabase.from("wishlist_items").update({ status: "purchased" }).eq("id", id);
-    if (error) toast.error(error.message);
-    else {
+  const purchaseMutation = useMutation({
+    mutationFn: async () => {
+      const r = await supabase.from("wishlist_items").update({ status: "purchased" }).eq("id", id);
+      if (r.error) throw r.error;
+    },
+    onSuccess: () => {
       confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ["#FF6B6B", "#FFD93D", "#6BCB77", "#4D96FF"] });
       toast.success("Celebration time! 🎉");
+      queryClient.invalidateQueries({ queryKey: ["wishlist", userId] });
+      queryClient.invalidateQueries({ queryKey: ["wishlist-item", id] });
       window.dispatchEvent(new CustomEvent("wishlist-updated"));
       navigate({ to: "/app/wishlist" });
-    }
-  };
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
 
-  if (loading) return <ItemDetailSkeleton />;
+  const save = () => saveMutation.mutate();
+  const deleteItem = () => deleteMutation.mutate();
+  const markPurchased = () => purchaseMutation.mutate();
+  const saving = saveMutation.isPending;
+
+  if (isLoading) return <ItemDetailSkeleton />;
   if (!item) return <div className="py-20 text-center text-muted-foreground">Item not found.</div>;
 
   const createdAt = new Date(item.created_at);
