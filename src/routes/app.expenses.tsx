@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { DbBudget, DbFixedExpense } from "@/lib/data";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -24,33 +26,49 @@ interface Expense {
 
 function ExpensesPage() {
   const { user } = useAuth();
+  const userId = user?.id ?? "";
+  const queryClient = useQueryClient();
   const [salary, setSalary] = useState(0);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+
+  const { data: budgetData, isLoading: loadingBudget } = useQuery<DbBudget | null>({
+    queryKey: ["budget", userId],
+    queryFn: async () => {
+      const r = await supabase.from("budgets").select("*").eq("user_id", userId).maybeSingle();
+      return (r.data ?? null) as DbBudget | null;
+    },
+    enabled: !!userId,
+  });
+
+  const { data: expensesData, isLoading: loadingExpenses } = useQuery<DbFixedExpense[]>({
+    queryKey: ["expenses", userId],
+    queryFn: async () => {
+      const r = await supabase.from("fixed_expenses").select("*").eq("user_id", userId);
+      return (r.data ?? []) as DbFixedExpense[];
+    },
+    enabled: !!userId,
+  });
+
+  const loading = loadingBudget || loadingExpenses;
+
+  // Sync local edit buffer from query data
+  useEffect(() => {
+    if (budgetData) setSalary(Number(budgetData.salary));
+  }, [budgetData]);
 
   useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const [{ data: b }, { data: exps }] = await Promise.all([
-        supabase.from("budgets").select("*").eq("user_id", user.id).maybeSingle(),
-        (supabase.from("fixed_expenses" as any).select("*").eq("user_id", user.id) as any),
-      ]);
-      
-      if (b) setSalary(Number(b.salary));
-      if (exps) setExpenses(exps.map((e: any) => ({ id: e.id, name: e.name, amount: Number(e.amount), is_savings: e.is_savings })));
-      else if (b) {
-        // Migration from legacy budget columns if first time
-        const legacy: Expense[] = [
-          { name: "Rent", amount: Number(b.rent), is_savings: false },
-          { name: "Bills", amount: Number(b.bills), is_savings: false },
-          { name: "Subscriptions", amount: Number(b.subscriptions), is_savings: false },
-        ].filter(i => i.amount > 0);
-        setExpenses(legacy);
-      }
-      setLoading(false);
-    })();
-  }, [user]);
+    if (expensesData && expensesData.length > 0) {
+      setExpenses(expensesData.map((e) => ({ id: e.id, name: e.name, amount: Number(e.amount), is_savings: e.is_savings })));
+    } else if (expensesData && expensesData.length === 0 && budgetData) {
+      // Migration from legacy budget columns if first time
+      const legacy: Expense[] = [
+        { name: "Rent", amount: Number(budgetData.rent), is_savings: false },
+        { name: "Bills", amount: Number(budgetData.bills), is_savings: false },
+        { name: "Subscriptions", amount: Number(budgetData.subscriptions), is_savings: false },
+      ].filter(i => i.amount > 0);
+      setExpenses(legacy);
+    }
+  }, [expensesData, budgetData]);
 
   const addExpense = () => {
     setExpenses([...expenses, { name: "", amount: 0, is_savings: false }]);
@@ -64,27 +82,33 @@ function ExpensesPage() {
     setExpenses(expenses.map((e, i) => (i === idx ? { ...e, ...updates } : e)));
   };
 
-  const saveAll = async () => {
-    if (!user) return;
-    setSaving(true);
-    
-    // Update salary in budget table (keeping it for now as base income source)
-    const { error: bErr } = await supabase.from("budgets").upsert({ user_id: user.id, salary } as any, { onConflict: "user_id" });
-    
-    // Update fixed expenses
-    const { error: dErr } = await (supabase.from("fixed_expenses" as any).delete().eq("user_id", user.id) as any);
-    
-    if (expenses.length > 0) {
-      const { error: iErr } = await (supabase.from("fixed_expenses" as any).insert(
-        expenses.map(e => ({ user_id: user.id, name: e.name, amount: e.amount, is_savings: e.is_savings }))
-      ) as any);
-      if (iErr) toast.error(iErr.message);
-    }
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      // Update salary in budget table (keeping it for now as base income source)
+      const { error: bErr } = await supabase.from("budgets").upsert({ user_id: userId, salary }, { onConflict: "user_id" });
+      if (bErr) throw bErr;
 
-    setSaving(false);
-    if (bErr) toast.error(bErr.message);
-    else if (!dErr) toast.success("Expenses updated");
-  };
+      // Update fixed expenses
+      const { error: dErr } = await supabase.from("fixed_expenses").delete().eq("user_id", userId);
+      if (dErr) throw dErr;
+
+      if (expenses.length > 0) {
+        const { error: iErr } = await supabase.from("fixed_expenses").insert(
+          expenses.map(e => ({ user_id: userId, name: e.name, amount: e.amount, is_savings: e.is_savings }))
+        );
+        if (iErr) throw iErr;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Expenses updated");
+      queryClient.invalidateQueries({ queryKey: ["budget", userId] });
+      queryClient.invalidateQueries({ queryKey: ["expenses", userId] });
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const saveAll = () => saveMutation.mutate();
+  const saving = saveMutation.isPending;
 
   const totalFixed = expenses.filter(e => !e.is_savings).reduce((acc, curr) => acc + curr.amount, 0);
   const totalSavings = expenses.filter(e => e.is_savings).reduce((acc, curr) => acc + curr.amount, 0);
